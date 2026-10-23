@@ -1,0 +1,40 @@
+name: sensorguard-isolated
+
+services:
+  mongo:
+    image: mongo:8.3.2
+    container_name: sensorguard-mongo
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7.2-alpine
+    container_name: sensorguard-redis
+    ports:
+      - "127.0.0.1:6380:6379"
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+    name: sensorguard_isolated_mongo_data
+  redis_data:
+    name: sensorguard_isolated_redis_data
+
+networks:
+  default:
+    name: sensorguard-isolated

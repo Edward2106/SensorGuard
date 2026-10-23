@@ -1,0 +1,97 @@
+services:
+  # ==========================================
+  # Redis Cache & Message Broker (BullMQ)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: sensorguard-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ==========================================
+  # Optional Local MongoDB (Time Series ready)
+  # When using MongoDB Atlas, set MONGODB_URI in .env
+  # ==========================================
+  mongodb:
+    image: mongo:7.0
+    container_name: sensorguard-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ==========================================
+  # SensorGuard API Server
+  # ==========================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sensorguard-api
+    command: ["node", "src/index.js"]
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/sensorguard}
+      - MONGODB_DB_NAME=${MONGODB_DB_NAME:-sensorguard}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ==========================================
+  # SensorGuard Background Worker (BullMQ)
+  # ==========================================
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sensorguard-worker
+    command: ["node", "src/worker.js"]
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/sensorguard}
+      - MONGODB_DB_NAME=${MONGODB_DB_NAME:-sensorguard}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  mongodb_data:

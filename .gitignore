@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+backups/
+.pnp
+.pnp.js
+
+# Environment variables
+.env
+.env.*
+!.env.example
+!frontend/.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Backups & archives
+backups/
+*.archive
+*.archive.gz
+*.tar.gz
+*.zip
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated simulator/inspection reports
+demo-output/
+scratch/

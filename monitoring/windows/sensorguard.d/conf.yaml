@@ -1,0 +1,14 @@
+# Copy to C:\ProgramData\Datadog\conf.d\sensorguard.d\conf.yaml as Administrator.
+# Replace <PROJECT_PATH> with the actual absolute path to your SensorGuard workspace.
+# Do not replace datadog.yaml or any API key. Logs Agent must already be enabled.
+logs:
+  - type: file
+    path: '<PROJECT_PATH>\logs\sensorguard-api-*.log'
+    service: sensorguard-api
+    source: nodejs
+    tags: ['env:development']
+  - type: file
+    path: '<PROJECT_PATH>\logs\sensorguard-worker-*.log'
+    service: sensorguard-worker
+    source: nodejs
+    tags: ['env:development']

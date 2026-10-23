@@ -1,0 +1,115 @@
+[
+  {
+    "name": "SensorGuard development: API errors",
+    "type": "query alert",
+    "query": "sum(last_10m):sum:sensorguard.api.errors{env:development}.as_count() > 20",
+    "message": "Investigate SensorGuard logs and dashboard. Development threshold; review before enabling. No notification recipients configured.",
+    "tags": [
+      "project:sensorguard",
+      "env:development"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 20,
+        "warning": 10
+      },
+      "notify_no_data": false,
+      "require_full_window": true,
+      "include_tags": true
+    }
+  },
+  {
+    "name": "SensorGuard development: API latency",
+    "type": "query alert",
+    "query": "avg(last_10m):avg:sensorguard.api.duration_ms.avg{env:development} > 1000",
+    "message": "Investigate SensorGuard logs and dashboard. Development threshold; review before enabling. No notification recipients configured.",
+    "tags": [
+      "project:sensorguard",
+      "env:development"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 1000,
+        "warning": 500
+      },
+      "notify_no_data": false,
+      "require_full_window": true,
+      "include_tags": true
+    }
+  },
+  {
+    "name": "SensorGuard development: Queue backlog",
+    "type": "query alert",
+    "query": "min(last_10m):sum:sensorguard.queue.waiting{env:development} > 500",
+    "message": "Investigate SensorGuard logs and dashboard. Development threshold; review before enabling. No notification recipients configured.",
+    "tags": [
+      "project:sensorguard",
+      "env:development"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 500,
+        "warning": 200
+      },
+      "notify_no_data": false,
+      "require_full_window": true,
+      "include_tags": true
+    }
+  },
+  {
+    "name": "SensorGuard development: Worker failures",
+    "type": "query alert",
+    "query": "sum(last_10m):sum:sensorguard.telemetry.failed{env:development}.as_count() > 20",
+    "message": "Investigate SensorGuard logs and dashboard. Development threshold; review before enabling. No notification recipients configured.",
+    "tags": [
+      "project:sensorguard",
+      "env:development"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 20,
+        "warning": 10
+      },
+      "notify_no_data": false,
+      "require_full_window": true,
+      "include_tags": true
+    }
+  },
+  {
+    "name": "SensorGuard development: Offline sensors",
+    "type": "query alert",
+    "query": "min(last_10m):sum:sensorguard.sensors.offline{env:development} > 10",
+    "message": "Investigate SensorGuard logs and dashboard. Development threshold; review before enabling. No notification recipients configured.",
+    "tags": [
+      "project:sensorguard",
+      "env:development"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 10,
+        "warning": 5
+      },
+      "notify_no_data": false,
+      "require_full_window": true,
+      "include_tags": true
+    }
+  },
+  {
+    "name": "SensorGuard development: Critical incidents",
+    "type": "query alert",
+    "query": "min(last_5m):sum:sensorguard.incidents.critical{env:development} > 0",
+    "message": "Investigate SensorGuard logs and dashboard. Development threshold; review before enabling. No notification recipients configured.",
+    "tags": [
+      "project:sensorguard",
+      "env:development"
+    ],
+    "options": {
+      "thresholds": {
+        "critical": 0
+      },
+      "notify_no_data": false,
+      "require_full_window": true,
+      "include_tags": true
+    }
+  }
+]

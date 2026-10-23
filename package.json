@@ -1,0 +1,52 @@
+{
+  "name": "sensorguard",
+  "version": "1.0.0",
+  "description": "SensorGuard — Real-time IoT Monitoring and Incident Detection",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "frontend:typecheck": "npm --prefix frontend run typecheck",
+    "frontend:test": "npm --prefix frontend test",
+    "start:observed": "node scripts/start-observed.js api",
+    "worker:observed": "node scripts/start-observed.js worker",
+    "simulate": "node simulator/index.js",
+    "demo:live": "node scripts/verify-live-demo.js",
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "worker": "node src/worker.js",
+    "worker:dev": "nodemon src/worker.js",
+    "start:isolated": "node --env-file=config/isolated.env src/index.js",
+    "worker:isolated": "node --env-file=config/isolated.env src/worker.js",
+    "db:init-timeseries": "node scripts/init-timeseries.js",
+    "db:create-indexes": "node scripts/create-indexes.js",
+    "db:seed-sensors": "node scripts/seed-sensors.js",
+    "db:setup": "node scripts/init-timeseries.js && node scripts/create-indexes.js && node scripts/seed-sensors.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "bullmq": "^5.41.0",
+    "dd-trace": "^6.21.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ioredis": "^5.4.2",
+    "mongoose": "^8.10.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  },
+  "keywords": [
+    "iot",
+    "monitoring",
+    "incident-detection",
+    "mongodb-timeseries",
+    "redis",
+    "bullmq",
+    "nodejs"
+  ],
+  "author": "SensorGuard Engineering Team",
+  "license": "ISC"
+}

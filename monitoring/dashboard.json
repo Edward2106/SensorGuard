@@ -1,0 +1,115 @@
+{
+  "title": "SensorGuard development observability",
+  "description": "Local Phase 6 template. Metrics require explicit enablement and billing approval; no synthetic cloud data. Counters measure attempts, gauges have one designated owner.",
+  "layout_type": "ordered",
+  "widgets": [
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Sensor overview",
+        "requests": [
+          {
+            "q": "sum:sensorguard.sensors.online{env:development}",
+            "display_type": "line"
+          },
+          {
+            "q": "sum:sensorguard.sensors.offline{env:development}",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Incident overview",
+        "requests": [
+          {
+            "q": "sum:sensorguard.incidents.open{env:development}",
+            "display_type": "line"
+          },
+          {
+            "q": "sum:sensorguard.incidents.critical{env:development}",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "API latency and errors",
+        "requests": [
+          {
+            "q": "avg:sensorguard.api.duration_ms.avg{env:development}",
+            "display_type": "line"
+          },
+          {
+            "q": "sum:sensorguard.api.errors{env:development}.as_count()",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Ingestion throughput",
+        "requests": [
+          {
+            "q": "sum:sensorguard.telemetry.received{env:development}.as_rate()",
+            "display_type": "line"
+          },
+          {
+            "q": "sum:sensorguard.telemetry.processed{env:development}.as_rate()",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Worker and queue status",
+        "requests": [
+          {
+            "q": "sum:sensorguard.queue.waiting{env:development}",
+            "display_type": "line"
+          },
+          {
+            "q": "sum:sensorguard.queue.failed{env:development}",
+            "display_type": "line"
+          },
+          {
+            "q": "sum:sensorguard.telemetry.failed{env:development}.as_count()",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Worker processing latency (ms)",
+        "requests": [
+          {
+            "q": "avg:sensorguard.worker.duration_ms.avg{env:development}",
+            "display_type": "line"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Detection performance (ms)",
+        "requests": [
+          {
+            "q": "avg:sensorguard.detection.duration_ms.avg{env:development}",
+            "display_type": "line"
+          }
+        ]
+      }
+    }
+  ]
+}

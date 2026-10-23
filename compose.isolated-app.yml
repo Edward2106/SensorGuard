@@ -1,0 +1,39 @@
+# Optional overlay, only after verified migration. No wholesale .env injection.
+x-app-environment: &app-environment
+  NODE_ENV: development
+  MONGODB_URI: mongodb://mongo:27017/sensorguard
+  MONGODB_DB_NAME: sensorguard
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_DB: 0
+  REDIS_TLS: "false"
+  API_KEY: ${ISOLATED_API_KEY:?Set ISOLATED_API_KEY explicitly before starting app containers}
+
+services:
+  api:
+    build: .
+    container_name: sensorguard-api
+    command: ["node", "src/index.js"]
+    environment:
+      <<: *app-environment
+      HOST: 0.0.0.0
+      PORT: 3000
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    stop_grace_period: 75s
+  worker:
+    build: .
+    container_name: sensorguard-worker
+    command: ["node", "src/worker.js"]
+    environment: *app-environment
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    stop_grace_period: 75s
