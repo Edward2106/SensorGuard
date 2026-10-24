@@ -42,6 +42,14 @@ function parseBoolean(value, defaultValue = false) {
 function validateEnv() {
   const nodeEnv = process.env.NODE_ENV || 'development';
   const isTest = nodeEnv === 'test';
+  const authOrigins = (process.env.AUTH_ORIGINS || (nodeEnv === 'production' ? '' : 'http://127.0.0.1:5173,http://localhost:5173')).split(',').filter(Boolean);
+  if (!authOrigins.length || authOrigins.some(origin => {
+    try { const u = new URL(origin); return u.origin !== origin || (nodeEnv === 'production' ? u.protocol !== 'https:' : !['http:', 'https:'].includes(u.protocol)); }
+    catch { return true; }
+  })) throw new Error('AUTH_ORIGINS must contain exact origins; production requires HTTPS');
+  if (process.env.DEVICE_API_KEY && (process.env.DEVICE_API_KEY.length < 32 || process.env.DEVICE_API_KEY === process.env.API_KEY)) throw new Error('DEVICE_API_KEY must be distinct from API_KEY and at least 32 characters');
+  const legacyKey = parseBoolean(process.env.LEGACY_API_KEY_ENABLED, nodeEnv !== 'production');
+  if (nodeEnv === 'production' && legacyKey && (!process.env.API_KEY || process.env.API_KEY.length < 32)) throw new Error('Legacy production credentials require a strong explicit API_KEY');
 
   const mongodbUri = process.env.MONGODB_URI;
   if (!mongodbUri && !isTest) {
@@ -57,7 +65,7 @@ function validateEnv() {
     IS_DEV: nodeEnv === 'development',
     IS_TEST: isTest,
     PORT: parseNumber(process.env.PORT, 3000),
-    HOST: process.env.HOST || '0.0.0.0',
+    HOST: process.env.HOST || '127.0.0.1',
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
 
     // MongoDB
@@ -70,6 +78,7 @@ function validateEnv() {
     REDIS_HOST: process.env.REDIS_HOST || '127.0.0.1',
     REDIS_PORT: parseNumber(process.env.REDIS_PORT, 6379),
     REDIS_PASSWORD: process.env.REDIS_PASSWORD || undefined,
+    REDIS_USERNAME: process.env.REDIS_USERNAME || undefined,
     REDIS_DB: parseNumber(process.env.REDIS_DB, 0),
     REDIS_TLS: parseBoolean(process.env.REDIS_TLS, false),
 
@@ -84,7 +93,11 @@ function validateEnv() {
     DETECTION_HYSTERESIS_PERCENT: nonnegativeNumber('DETECTION_HYSTERESIS_PERCENT', 5),
     TELEMETRY_MAX_FUTURE_SECONDS: positiveInteger('TELEMETRY_MAX_FUTURE_SECONDS', 300),
     // Authentication
-    API_KEY: process.env.API_KEY || 'sensorguard-secret-api-key',
+    API_KEY: process.env.API_KEY,
+    DEVICE_API_KEY: process.env.DEVICE_API_KEY,
+    LEGACY_API_KEY_ENABLED: legacyKey,
+    AUTH_ORIGINS: authOrigins,
+    SESSION_TTL_SECONDS: positiveInteger('SESSION_TTL_SECONDS', 28800),
   });
 }
 

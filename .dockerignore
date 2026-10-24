@@ -14,3 +14,9 @@ logs/
 demo-output/
 backups/
 *.log
+frontend/node_modules/
+frontend/dist/
+tests/
+scratch/
+*.archive
+*.archive.gz

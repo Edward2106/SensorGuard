@@ -1,0 +1,34 @@
+name: Verify
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - run: npm ci
+      - run: npm --prefix frontend ci
+      - run: npm test
+      - run: npm run frontend:test
+      - run: npm run frontend:typecheck
+      - run: npm run frontend:build
+      - run: npm audit --audit-level=high
+      - run: npm --prefix frontend audit --audit-level=high
+      - run: node scripts/secret-check.js
+      - run: node scripts/prepare-staging.js
+      - run: docker compose --env-file .env.staging.local -f deploy/compose.yml config --quiet
+      - run: docker build -f deploy/Dockerfile -t sensorguard-ci:local .

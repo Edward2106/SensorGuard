@@ -1,0 +1,12 @@
+{
+  auto_https disable_redirects
+}
+https://localhost {
+  tls internal
+  encode zstd gzip
+  request_body {
+    max_size 1MB
+  }
+  header -Server
+  reverse_proxy api:3000
+}

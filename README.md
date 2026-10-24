@@ -16,11 +16,13 @@ Dự án giúp giải quyết bài toán giám sát thiết bị tập trung, c�
 - **Tạo và xử lý cảnh báo:** Tự động tạo sự cố (incident) khi phát hiện bất thường hoặc mất kết nối; hỗ trợ quy trình chuyển trạng thái từ đang mở (open), đã ghi nhận (acknowledged) sang đã giải quyết (resolved).
 - **Giả lập cảm biến IoT:** Công cụ dòng lệnh (CLI) giả lập lưu lượng dữ liệu với nhiều kịch bản: bình thường, quá nhiệt, độ ẩm cao, rung lắc mạnh, ngắt kết nối và gửi dữ liệu đột biến.
 - **Xem biểu đồ và dữ liệu trên website:** Giao diện React hiển thị biểu đồ đường đo lường thời gian thực, bảng phân phối thiết bị và danh sách sự cố.
-- **Theo dõi hoạt động hệ thống:** Kiểm tra trạng thái hoạt động (liveness probe qua `/health`) và tính sẵn sàng của cơ sở dữ liệu (readiness probe qua `/ready`).
+- **Theo dõi hoạt động hệ thống:** Kiểm tra trạng thái hoạt động (liveness probe qua `/health`), tính sẵn sàng của cơ sở dữ liệu (readiness probe qua `/ready`), và trạng thái cụm worker qua `/api/v1/workers`.
+- **Xác thực và phân quyền người dùng (RBAC):** Đăng nhập/đăng xuất bảo mật với MongoDB-backed sessions; băm mật khẩu bằng thuật toán scrypt với salt ngẫu nhiên; phân chia 3 vai trò (ADMIN, OPERATOR, VIEWER) thực thi nghiêm ngặt tại backend; tự động hết hạn phiên và thu hồi phiên ngay lập tức khi khóa tài khoản hoặc thay đổi vai trò; bảo vệ chống tấn công CSRF và session fixation.
+- **Giám sát nhịp tim Worker (Heartbeat Probe):** Định kỳ ghi nhận nhịp tim worker (10 giây) vào Redis registry (`sg:workers:<db>`), tự động chuyển sang `degraded` khi worker dừng hoặc mất kết nối MongoDB, tự hết hạn (stale sau 30 giây) nếu tiến trình worker bị tắt đột ngột.
+- **Môi trường Staging và Cổng Caddy HTTPS:** Cấu hình Docker Compose (`deploy/compose.yml`) triển khai stack staging hoàn chỉnh với Caddy Reverse Proxy hỗ trợ HTTPS nội bộ (`https://localhost:8443`), mạng nội bộ `private` cô lập hoàn toàn API, Worker, MongoDB và Redis.
+- **Quy trình sao lưu và phục hồi BSON:** Kịch bản kiểm chứng quy trình sao lưu và phục hồi toàn diện (`mongodump`/`mongorestore`), bảo toàn đầy đủ các Time Series collections (`sensor_readings`) và chỉ mục mà không ảnh hưởng đến dữ liệu phát triển.
 
-### Chức năng chưa có hoặc chưa hoàn thiện:
-- Chưa có hệ thống đăng nhập tài khoản người dùng nhiều cấp độ (RBAC).
-- Chưa có endpoint kiểm tra nhịp tim riêng biệt (heartbeat probe) cho tiến trình worker.
+### Chức năng chưa có hoặc dự kiến phát triển tiếp:
 - Chưa có API tổng hợp dữ liệu lịch sử theo từng khung giờ hoặc ngày (analytics hiện hiển thị phân phối tức thời).
 - Chưa kích hoạt gửi cảnh báo qua Email/SMS/Webhook ra bên ngoài.
 
@@ -161,26 +163,35 @@ Giao diện web (`http://127.0.0.1:5173`) bao gồm các phân hệ chính:
 
 ## 9. API chính
 
-Các API yêu cầu xác thực cần gửi kèm tiêu đề HTTP `X-API-Key: <giá_trị_API_KEY>`.
+Hệ thống hỗ trợ 2 cơ chế xác thực:
+1. **Người dùng (Web UI):** Sử dụng Cookie phiên làm việc an toàn (`__Secure-sg_session` ở production hoặc `sg_session` ở development) kèm tiêu đề CSRF `X-SensorGuard-UI: 1` và `Content-Type: application/json`.
+2. **Thiết bị IoT & Dịch vụ nền:** Gửi tiêu đề HTTP `X-API-Key: <DEVICE_API_KEY>` (chỉ được phép gửi bản ghi đo lường telemetry vào `/api/v1/readings`) hoặc khóa dịch vụ `API_KEY` (khi bật `LEGACY_API_KEY_ENABLED`).
 
-| Phương thức | Đường dẫn | Xác thực | Mô tả |
+| Phương thức | Đường dẫn | Xác thực / Quyền hạn | Mô tả |
 |---|---|---|---|
-| GET | `/health` | Không | Kiểm tra tiến trình backend còn hoạt động hay không |
-| GET | `/ready` | Không | Kiểm tra kết nối tới MongoDB và Redis |
-| GET | `/api/v1/sensors` | X-API-Key | Lấy danh sách cảm biến (hỗ trợ phân trang, lọc) |
-| POST | `/api/v1/sensors` | X-API-Key | Đăng ký cảm biến mới kèm cấu hình ngưỡng |
-| GET | `/api/v1/sensors/:sensorId` | X-API-Key | Xem thông tin chi tiết một cảm biến |
-| PUT | `/api/v1/sensors/:sensorId` | X-API-Key | Cập nhật thông tin và ngưỡng của cảm biến |
-| DELETE | `/api/v1/sensors/:sensorId` | X-API-Key | Xóa cảm biến khỏi hệ thống |
-| GET | `/api/v1/sensors/stats` | X-API-Key | Thống kê số lượng cảm biến theo trạng thái |
-| GET | `/api/v1/sensors/:sensorId/readings` | X-API-Key | Lấy danh sách dữ liệu đo của cảm biến |
-| GET | `/api/v1/sensors/:sensorId/readings/latest` | X-API-Key | Lấy dữ liệu đo mới nhất của cảm biến |
-| POST | `/api/v1/readings` | X-API-Key | Đưa bản ghi đo lường vào hàng đợi xử lý |
-| POST | `/api/v1/readings/batch` | X-API-Key | Đưa tập hợp nhiều bản ghi vào hàng đợi |
-| GET | `/api/v1/incidents` | X-API-Key | Lấy danh sách sự cố cảnh báo |
-| GET | `/api/v1/incidents/stats` | X-API-Key | Thống kê số lượng sự cố theo mức độ |
-| PATCH | `/api/v1/incidents/:alertId/acknowledge` | X-API-Key | Chuyển trạng thái sự cố sang đã ghi nhận |
-| PATCH | `/api/v1/incidents/:alertId/resolve` | X-API-Key | Đóng và đánh dấu giải quyết sự cố |
+| GET | `/health` | Công khai | Kiểm tra tiến trình backend API còn hoạt động hay không (liveness) |
+| GET | `/ready` | Công khai | Kiểm tra tính sẵn sàng kết nối tới MongoDB và Redis (readiness) |
+| POST | `/api/v1/auth/login` | Công khai (Rate limit 10/15p) | Đăng nhập hệ thống, cấp cookie phiên làm việc |
+| POST | `/api/v1/auth/logout` | Session + CSRF | Đăng xuất, hủy cookie và thu hồi phiên trên cơ sở dữ liệu |
+| GET | `/api/v1/auth/me` | Session (Mọi vai trò) | Lấy thông tin tài khoản và vai trò đang đăng nhập |
+| GET | `/api/v1/auth/users` | Session (Chỉ ADMIN) | Danh sách tài khoản người dùng có phân trang |
+| POST | `/api/v1/auth/users` | Session (Chỉ ADMIN) | Tạo tài khoản người dùng mới (ADMIN, OPERATOR, VIEWER) |
+| PATCH | `/api/v1/auth/users/:id` | Session (Chỉ ADMIN) | Khóa/mở tài khoản, cập nhật vai trò hoặc đổi mật khẩu |
+| GET | `/api/v1/workers` | Session hoặc API Key | Kiểm tra tình trạng nhịp tim (heartbeat) của cụm worker nền |
+| GET | `/api/v1/sensors` | Mọi vai trò / API Key | Lấy danh sách cảm biến (hỗ trợ phân trang, tìm kiếm, lọc) |
+| POST | `/api/v1/sensors` | Chỉ ADMIN | Đăng ký cảm biến mới kèm cấu hình ngưỡng cảnh báo |
+| GET | `/api/v1/sensors/:sensorId` | Mọi vai trò / API Key | Xem thông tin chi tiết cấu hình một cảm biến |
+| PUT / PATCH | `/api/v1/sensors/:sensorId` | ADMIN, OPERATOR | Cập nhật thông số và ngưỡng cảnh báo của cảm biến |
+| DELETE | `/api/v1/sensors/:sensorId` | Chỉ ADMIN | Xóa cảm biến khỏi hệ thống |
+| GET | `/api/v1/sensors/stats` | Mọi vai trò / API Key | Thống kê số lượng cảm biến theo trạng thái |
+| GET | `/api/v1/sensors/:sensorId/readings` | Mọi vai trò / API Key | Lấy danh sách lịch sử đo lường của cảm biến |
+| GET | `/api/v1/sensors/:sensorId/readings/latest` | Mọi vai trò / API Key | Lấy bản ghi đo lường mới nhất của cảm biến |
+| POST | `/api/v1/readings` | Thiết bị (`DEVICE_API_KEY`) | Đưa 1 bản ghi đo lường vào hàng đợi BullMQ (người dùng bị chặn) |
+| POST | `/api/v1/readings/batch` | Thiết bị (`DEVICE_API_KEY`) | Đưa tập hợp nhiều bản ghi vào hàng đợi (tối đa 1000 bản ghi) |
+| GET | `/api/v1/incidents` | Mọi vai trò / API Key | Lấy danh sách sự cố cảnh báo (lọc theo mức độ, trạng thái) |
+| GET | `/api/v1/incidents/stats` | Mọi vai trò / API Key | Thống kê số lượng sự cố theo mức độ nghiêm trọng |
+| PATCH | `/api/v1/incidents/:alertId/acknowledge` | ADMIN, OPERATOR | Ghi nhận sự cố (tự động gắn danh tính người thực hiện) |
+| PATCH | `/api/v1/incidents/:alertId/resolve` | ADMIN, OPERATOR | Đóng và đánh dấu giải quyết sự cố kèm ghi chú giải pháp |
 
 ## 10. Giám sát bằng Datadog
 
@@ -191,31 +202,36 @@ Mã nguồn dự án đã tích hợp sẵn thư viện `dd-trace` và xuất nh
   npm run start:observed
   npm run worker:observed
   ```
-- Tệp nhật ký tự động ghi tại thư mục `logs/` (mỗi tiến trình lưu tệp riêng với cơ chế xoay vòng dung lượng 5 MiB).
+- Tệp nhật ký tự động ghi tại thư mục `logs/` (mỗi tiến trình lưu tệp riêng với cơ chế xoay vòng dung lượng 5 MiB, lưu tối đa 3 bản sao lưu).
 - Các chỉ số DogStatsD gửi qua cổng UDP `8125` trên máy cục bộ với tiền tố `sensorguard.*`.
 - Các tệp cấu hình mẫu cho bảng điều khiển và cảnh báo có sẵn tại thư mục `monitoring/` (`dashboard.json`, `monitors.json`).
 
-*Lưu ý rõ ràng:* Việc đẩy dữ liệu lên dịch vụ đám mây Datadog Cloud (Cloud Logs Explorer, Custom Metrics) chưa được kiểm thử toàn diện do hạn chế quyền hạn truy cập của Datadog Agent trên máy trạm cục bộ. Dự án không tự động tạo tài nguyên trên Datadog và dịch vụ Datadog Cloud là dịch vụ thương mại có phí.
+*Lưu ý rõ ràng:* Việc đẩy dữ liệu lên dịch vụ đám mây Datadog Cloud (Cloud Logs Explorer, Custom Metrics) chưa được kích hoạt vì Datadog Cloud là dịch vụ thương mại có phí. Toàn bộ thiết lập đo lường cục bộ an toàn, không tự động kích hoạt tính năng tính phí.
 
-## 11. Những giới hạn hiện tại
+## 11. Kiểm định hiệu năng và Độ tin cậy (Phase 8 Benchmark)
 
-- **Xác thực người dùng:** Hiện tại sử dụng một khóa `API_KEY` chia sẻ chung trong `.env`. Chưa có cơ chế quản lý tài khoản người dùng, phiên đăng nhập (session) hoặc mã xác thực JWT.
-- **Giám sát Worker:** Chưa có HTTP endpoint độc lập để kiểm tra tình trạng nhịp tim (heartbeat) của tiến trình worker.
-- **Thống kê lịch sử:** Backend chưa có các API tính toán gộp (aggregation theo ngày/tuần/tháng) cho dữ liệu chuỗi thời gian lớn; biểu đồ hiện giới hạn hiển thị tối đa 200 điểm dữ liệu gần nhất.
-- **Xác thực Datadog Cloud:** Tích hợp Datadog mới dừng lại ở mức đo lường tại tiến trình cục bộ, chưa xác nhận luồng đẩy dữ liệu thành công lên tài khoản Datadog Cloud.
-- **Môi trường tách biệt (Isolated Docker):** Bộ cấu hình `compose.isolated.yml` đã được chuẩn bị nhưng chưa chuyển đổi làm môi trường mặc định.
+Hệ thống đã thực hiện kiểm định tải (load test) trên hạ tầng cô lập với các kịch bản 20 req/s, 50 req/s và 100 req/s:
 
-## 12. Hướng phát triển
+- **Kịch bản 20 req/s (10 giây, 200 bản ghi):** Tỷ lệ thành công 100%, tỷ lệ lỗi 0%, độ trễ p50 = 27.9ms, p95 = 32.6ms, p99 = 70.9ms, tồn đọng hàng đợi cao nhất = 1 gói.
+- **Kịch bản 50 req/s (10 giây, 500 bản ghi):** Tỷ lệ thành công 100%, tỷ lệ lỗi 0%, độ trễ p50 = 17.5ms, p95 = 26.1ms, p99 = 27.9ms, tồn đọng hàng đợi cao nhất = 1 gói.
+- **Kịch bản 100 req/s (10 giây, 1000 bản ghi):** 
+  - Khi hệ thống đạt trạng thái ấm (warm cache/JIT) và điều kiện I/O ổn định: Tiếp nhận thành công 1000/1000 bản ghi (tốc độ đo được 99.82 req/s), tỷ lệ lỗi 0%, độ trễ p50 = 14.2ms, p95 = 22.3ms, p99 = 25.3ms, tồn đọng hàng đợi cao nhất = 9 gói, worker xử lý p95 = 45ms.
+  - *Điểm nghẽn xác nhận khi máy chủ chịu tải lạnh hoặc tài nguyên CPU/IO bị tranh chấp:* Trên môi trường máy trạm đơn máy chủ chạy chung cả API, Worker, MongoDB Time Series và Redis, điểm nghẽn chính nằm ở giới hạn in-flight request của client kiểm thử và chi phí xác thực rate limit/MongoDB write trước khi vào hàng đợi. Nếu độ trễ vượt quá ngưỡng timeout 5s của client, tỷ lệ lỗi có thể tăng lên ~1.1%. Do đó, trong môi trường sản xuất thực tế, khuyến nghị phân tách máy chủ cơ sở dữ liệu và cụm worker xử lý nền riêng biệt.
 
-Các kế hoạch cải tiến trong giai đoạn tiếp theo (Phase 8):
-- Bổ sung hệ thống xác thực người dùng dựa trên JWT và phân quyền quản trị viên / kỹ thuật viên vận hành.
-- Bổ sung cơ chế thông báo sự cố tức thời qua Email, Webhook (Discord, Slack, Telegram).
-- Xây dựng API tổng hợp dữ liệu lịch sử phục vụ phân tích xu hướng dài hạn.
-- Thiết lập endpoint kiểm tra sức khỏe chuyên biệt cho cụm worker.
-- Tự động hóa quy trình triển khai CI/CD với GitHub Actions và triển khai thử nghiệm trên hạ tầng đám mây.
+## 12. Những giới hạn hiện tại
 
-## 13. Lưu ý bảo mật
+- **Thống kê lịch sử dài hạn:** Backend chưa có các API tính toán tổng hợp (aggregation theo ngày/tuần/tháng) cho dữ liệu chuỗi thời gian lớn; biểu đồ giao diện hiện hiển thị tối đa 200 điểm dữ liệu gần nhất.
+- **Kênh thông báo ra ngoài:** Chưa kích hoạt gửi cảnh báo trực tiếp qua Email, SMS hoặc Webhook (Discord/Slack/Telegram).
+- **Hạ tầng 100 req/s:** Đã được kiểm chứng thực tế đạt chuẩn trong điều kiện cô lập, nhưng để duy trì liên tục ở quy mô lớn hơn cần hạ tầng cụm phân tán (distributed cluster) có nhiều worker nodes.
 
-- **Không đưa tệp bí mật lên Git:** Tệp `.env` chứa thông tin cấu hình nhạy cảm và mật khẩu cơ sở dữ liệu. Tệp này đã được khai báo trong `.gitignore` và không bao giờ được commit lên GitHub.
-- **Cấu hình môi trường riêng:** Người dùng khi tải mã nguồn về cần tạo tệp `.env` riêng từ `.env.example` và thiết lập khóa `API_KEY` an toàn.
-- **Bảo vệ cổng nội bộ:** Cổng giao tiếp frontend (`server/boundary.mjs`) được cấu hình chỉ phục vụ cho việc phát triển cục bộ (`localhost`). Khi đưa vào môi trường thực tế, bắt buộc phải có tường lửa và lớp bảo mật xác thực chuyên dụng.
+## 13. Hướng phát triển tiếp theo
+
+- Xây dựng API tổng hợp dữ liệu lịch sử theo từng khung giờ và ngày phục vụ phân tích xu hướng dài hạn.
+- Tích hợp module gửi thông báo tức thời qua Webhook và Email khi xuất hiện sự cố nghiêm trọng (Critical).
+- Kích hoạt quy trình CI/CD tự động hóa trên GitHub Actions khi đưa mã nguồn lên môi trường đám mây.
+
+## 14. Lưu ý bảo mật
+
+- **Không đưa tệp bí mật lên Git:** Tệp `.env`, `.env.*`, khóa API, chứng chỉ và các bản sao lưu cơ sở dữ liệu đã được khai báo nghiêm ngặt trong `.gitignore` và được kiểm tra tự động bằng `scripts/secret-check.js`.
+- **Cấu hình môi trường riêng:** Người dùng khi tải mã nguồn về cần tạo tệp `.env` riêng từ `.env.example` và thiết lập các khóa bí mật có độ dài tối thiểu 32 ký tự.
+- **Bảo vệ cổng nội bộ và HTTPS:** Trong môi trường staging, toàn bộ truy cập đi qua Caddy Reverse Proxy trên cổng HTTPS `https://localhost:8443`. Không mở cổng backend API hoặc database trực tiếp ra ngoài Internet.

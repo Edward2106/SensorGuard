@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Preferences, usePrefs, useApi, type List, type Incident } from './core';
 import './style.css';
+import { AuthGate, Account, Users, useAuth } from './auth';
 
 const Overview = lazy(() => import('./pages').then(m => ({ default: m.Overview })));
 const Sensors = lazy(() => import('./pages').then(m => ({ default: m.Sensors })));
@@ -39,6 +40,7 @@ const links = [
 ] as const;
 
 function App() {
+  const user = useAuth();
   const [mobile, setMobile] = useState(false);
   const [search, setSearch] = useState('');
   const { prefs, setPrefs } = usePrefs();
@@ -72,6 +74,7 @@ function App() {
           <small>IOT OPERATIONS</small>
         </div>
         <nav aria-label="Main navigation">
+          {user?.role === 'ADMIN' && <NavLink to="/users" onClick={() => setMobile(false)}>User accounts</NavLink>}
           {links.map(([to, title, Icon]) => (
             <NavLink
               key={to}
@@ -134,7 +137,7 @@ function App() {
             <Bell size={16} />
             <span>{openCount > 0 ? openCount : '0'}</span>
           </NavLink>
-          <span className="avatar" title="Local Operator">OP</span>
+          <Account />
         </header>
 
         <main id="main">
@@ -152,6 +155,7 @@ function App() {
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/health" element={<Health />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/users" element={<Users />} />
               <Route path="*" element={<h1>Page not found</h1>} />
             </Routes>
           </Suspense>
@@ -173,7 +177,7 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={client}>
       <Preferences>
         <BrowserRouter>
-          <App />
+          <AuthGate><App /></AuthGate>
         </BrowserRouter>
       </Preferences>
     </QueryClientProvider>

@@ -7,6 +7,8 @@ import { connectMongo, disconnectMongo } from './config/db.js';
 import { getRedisClient, disconnectRedis } from './config/redis.js';
 import { SHUTDOWN_TIMEOUT_MS } from './config/constants.js';
 import { closeTelemetryQueue } from './queues/telemetry.queue.js';
+import { initializeAuth } from './security/store.js';
+import { closeHeartbeatReader } from './routes/index.js';
 
 let server = null;
 let isShuttingDown = false;
@@ -46,6 +48,7 @@ async function gracefulShutdown(signal, exitCode = 0) {
     }
 
     await closeTelemetryQueue();
+    closeHeartbeatReader();
     closeReadingCache();
     await disconnectMongo();
     await disconnectRedis();
@@ -68,7 +71,9 @@ async function bootstrap() {
   // Connect downstream services (non-fatal in dev mode if services not yet up)
   try {
     await connectMongo();
+    await initializeAuth();
   } catch (error) {
+    if (env.IS_PROD) throw error;
     // eslint-disable-next-line no-console
     obsLogger.warn('MongoDB initial connection deferred', error);
   }

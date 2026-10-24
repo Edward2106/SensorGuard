@@ -1,4 +1,6 @@
 import express from 'express';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { env } from './config/env.js';
 import { isMongoConnected } from './config/db.js';
 import { isRedisConnected } from './config/redis.js';
@@ -10,6 +12,20 @@ import { metrics } from './observability/metrics.js';
 
 export function createApp() {
   const app = express();
+  app.disable('x-powered-by');
+  // Only enable behind the single private reverse proxy; never expose that API port.
+  if (process.env.TRUST_SINGLE_PROXY === 'true') app.set('trust proxy', 1);
+  app.set('query parser', 'simple');
+  app.use((req, res, next) => {
+    if (Object.values(req.query).some(v => typeof v !== 'string' || v.length > 256)) return res.status(400).json({ message: 'Query values must be short strings' });
+    for (const field of ['page','limit']) if (req.query[field] !== undefined && (!/^\d+$/.test(req.query[field]) || Number(req.query[field]) < 1 || Number(req.query[field]) > (field === 'page' ? 10000 : 1000))) return res.status(400).json({ message: 'Invalid pagination' });
+    next();
+  });
+  app.use((_req, res, next) => {
+    res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'" });
+    if (env.IS_PROD) res.set('Strict-Transport-Security', 'max-age=31536000');
+    next();
+  });
 
   // Attach unique Request ID & header to all incoming requests
   app.use(requestIdMiddleware);
@@ -33,6 +49,13 @@ export function createApp() {
   }));
 
   // Root endpoint
+  const frontend = fileURLToPath(new URL('../frontend/dist/', import.meta.url));
+  const hasFrontend = env.IS_PROD && existsSync(frontend + 'index.html');
+  if (hasFrontend) app.use((req, res, next) => {
+    if (req.path.startsWith('/api') || ['/health','/ready'].includes(req.path)) return next();
+    res.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'");
+    next();
+  }, express.static(frontend, { dotfiles: 'deny' }));
   app.get('/', (req, res) => {
     res.json({
       service: 'SensorGuard API',
@@ -74,6 +97,7 @@ export function createApp() {
   app.use('/api/v1', apiV1Router);
 
   // 404 Handler
+  if (hasFrontend) app.get('*', (req, res, next) => req.path.startsWith('/api') ? next() : res.sendFile(frontend + 'index.html'));
   app.use((req, res) => {
     res.status(404).json({
       error: 'Not Found',

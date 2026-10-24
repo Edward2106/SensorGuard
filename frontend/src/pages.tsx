@@ -1,13 +1,13 @@
 import { useState, lazy, Suspense } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from './auth';
 import {
   api,
   useApi,
   useDate,
   usePrefs,
   params,
-  escapeSearch,
   Badge,
   Panel,
   State,
@@ -313,6 +313,7 @@ function SensorForm({ sensor, done }: { sensor?: Sensor; done: () => void }) {
 }
 
 export function Sensors() {
+  const role = useAuth()?.role;
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
@@ -325,9 +326,9 @@ export function Sensors() {
       params({
         page,
         limit: 20,
-        search: escapeSearch(search),
+        search,
         ...Object.fromEntries(
-          Object.entries(filter).map(([k, v]) => [k, ['facility', 'zone'].includes(k) ? escapeSearch(v) : v])
+          Object.entries(filter)
         ),
       }),
     !id
@@ -371,12 +372,12 @@ export function Sensors() {
                 <b>Last seen:</b> {date(detail.data.data.lastSeen)}
               </p>
               <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                <button onClick={() => setEditing(!editing)}>
+                <button disabled={!role || role === 'VIEWER'} onClick={() => setEditing(!editing)}>
                   {editing ? 'Close editor' : 'Edit metadata & thresholds'}
                 </button>
                 <button
                   className="danger"
-                  disabled={del.isPending}
+                  disabled={del.isPending || role !== 'ADMIN'}
                   onClick={() => {
                     if (window.confirm(`Delete sensor ${id}? Its incident history will remain preserved. This action cannot be undone.`)) {
                       del.mutate(id);
@@ -413,7 +414,7 @@ export function Sensors() {
           <h1>Sensor inventory</h1>
           <p className="subtitle">Manage device registrations, operational status, and alerting thresholds.</p>
         </div>
-        <button className="primary" onClick={() => setEditing(!editing)}>
+        <button className="primary" disabled={role !== 'ADMIN'} onClick={() => setEditing(!editing)}>
           {editing ? 'Cancel' : '+ Register sensor'}
         </button>
       </div>
@@ -699,6 +700,7 @@ export function Monitoring({
 }
 
 export function Incidents() {
+  const role = useAuth()?.role;
   const [sp] = useSearchParams();
   const [filters, setFilters] = useState({
     status: sp.get('status') || '',
@@ -824,7 +826,7 @@ export function Incidents() {
                     <button
                       key={verb}
                       disabled={
-                        action.isPending ||
+                        !role || role === 'VIEWER' || action.isPending ||
                         i.status === 'resolved' ||
                         (verb === 'acknowledge' && i.status !== 'open')
                       }
@@ -952,6 +954,7 @@ export function Analytics() {
 }
 
 export function Health() {
+  const workers = useApi<{data:{status:string;workers:{id:string;status:string;timestamp?:number}[]}}>('workers');
   const health = useApi<{ status: string; uptime?: number; timestamp?: string }>('health');
   const ready = useApi<{ status: string; services: Record<string, string>; timestamp?: string }>('ready');
 
@@ -1011,10 +1014,12 @@ export function Health() {
       </div>
 
       <Panel title="Telemetry worker heartbeat">
+        <State q={workers} />
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-          <Badge value="unavailable" />
-          <span>Worker status unavailable — API readiness does not establish worker health.</span>
+          <Badge value={workers.data?.data?.status || 'unavailable'} />
+          <span>API readiness does not establish worker health. Heartbeats expire after 30 seconds.</span>
         </div>
+        {workers.data?.data?.workers.map(worker => <p key={worker.id}>{worker.id} · {worker.status} · {worker.timestamp ? new Date(worker.timestamp).toLocaleString() : 'Heartbeat expired'}</p>)}
         <p style={{ color: 'var(--muted)', fontSize: '13px' }}>
           API and worker run as decoupled processes. A healthy API confirms Express and dependency connections, but does
           not verify BullMQ queue consumption or background telemetry worker liveness.

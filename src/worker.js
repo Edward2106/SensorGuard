@@ -12,6 +12,7 @@ import { ensureTelemetryStorage, createTelemetryStore } from './services/telemet
 import { createReadingCache, getCacheClient, closeReadingCache } from './services/reading-cache.js';
 import { createTelemetryProcessor } from './services/telemetry.processor.js';
 import { startSensorHealthWorker } from './queues/sensor-health.worker.js';
+import { startHeartbeat } from './services/worker-heartbeat.js';
 
 export function createTelemetryWorker(processor, options = {}) {
   const worker = new Worker(QUEUES.TELEMETRY_INGESTION, processor, {
@@ -39,9 +40,11 @@ export async function startWorker() {
   const store = createTelemetryStore();
   const processor = createTelemetryProcessor({ store, cache: createReadingCache(getCacheClient(true)) });
   const worker = createTelemetryWorker(processor);
+  await worker.waitUntilReady();
+  const heartbeat = startHeartbeat(worker);
   let health;
   try { health = await startSensorHealthWorker(store); }
-  catch (error) { await worker.close(); throw error; }
+  catch (error) { await heartbeat.close(); await worker.close(); throw error; }
   const close = createShutdown({ worker, health });
   const gauges = startGaugeCollector({ db: mongoose.connection.db,
     queue: process.env.SENSORGUARD_METRICS_ENABLED === 'true' && process.env.SENSORGUARD_GAUGES_ENABLED === 'true' ? getTelemetryQueue() : null });
@@ -54,7 +57,7 @@ export async function startWorker() {
       obsLogger.error('[Worker] Drain deadline exceeded; exiting with failure. Active jobs require stalled-job recovery and ledger reconciliation.');
       process.exit(1);
     }, env.WORKER_SHUTDOWN_TIMEOUT_MS);
-    try { gauges.close(); await close(); await closeTelemetryQueue(); await obsLogger.flush(); process.exitCode = exitCode; }
+    try { await heartbeat.close(); gauges.close(); await close(); await closeTelemetryQueue(); await obsLogger.flush(); process.exitCode = exitCode; }
     catch { process.exitCode = 1; }
     finally { clearTimeout(timer); }
   };

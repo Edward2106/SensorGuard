@@ -5,8 +5,17 @@ import alertRoutes from './alert.routes.js';
 import { authenticateApiKey } from '../middleware/auth.js';
 import { isMongoConnected } from '../config/db.js';
 import { isRedisConnected } from '../config/redis.js';
+import { security } from '../security/auth.js';
+import { heartbeatClient, readHeartbeats } from '../services/worker-heartbeat.js';
 
 const apiRouter = Router();
+apiRouter.use('/auth', security.router);
+let heartbeatReader;
+apiRouter.get('/workers', authenticateApiKey, async (_req, res) => {
+  try { heartbeatReader ||= heartbeatClient(); res.json({ data: await readHeartbeats(heartbeatReader) }); }
+  catch { res.status(503).json({ message: 'Worker heartbeat storage unavailable' }); }
+});
+export function closeHeartbeatReader() { heartbeatReader?.disconnect(); heartbeatReader = null; }
 
 // API Metadata / Discovery
 apiRouter.get('/', (req, res) => {

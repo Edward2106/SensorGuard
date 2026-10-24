@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Preferences, api, escapeSearch } from './core';
 import { Overview, Sensors, Monitoring, Incidents, Analytics, Health, Settings } from './pages';
 import { points } from './Charts';
+import { AuthContext } from './auth';
 
 afterEach(() => {
   cleanup();
@@ -25,7 +26,7 @@ function mount(element: React.ReactNode) {
       }
     >
       <Preferences>
-        <MemoryRouter>{element}</MemoryRouter>
+        <AuthContext.Provider value={{id:'test',username:'tester',role:'ADMIN',disabled:false}}><MemoryRouter>{element}</MemoryRouter></AuthContext.Provider>
       </Preferences>
     </QueryClientProvider>
   );

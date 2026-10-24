@@ -1,6 +1,7 @@
 import { Sensor } from '../models/sensor.model.js';
 import { NotFoundError, ConflictError, ValidationError } from '../errors/app-errors.js';
 import { validateDetectionConfig } from './detection.rules.js';
+import { literalPattern } from '../security/query.js';
 
 const editable = ['name', 'type', 'unit', 'status', 'location', 'thresholds', 'samplingIntervalSeconds', 'metadata', 'detectionSettings'];
 const editableData = data => Object.fromEntries(editable.filter(key => data[key] !== undefined).map(key => [key, data[key]]));
@@ -40,7 +41,7 @@ export class SensorService {
     }
 
     if (filters.facility) {
-      query['location.facility'] = new RegExp(filters.facility, 'i');
+      query['location.facility'] = new RegExp(literalPattern(filters.facility), 'i');
     }
 
     if (filters.zone) {
@@ -48,7 +49,7 @@ export class SensorService {
     }
 
     if (filters.search) {
-      const searchRegex = new RegExp(filters.search, 'i');
+      const searchRegex = new RegExp(literalPattern(filters.search), 'i');
       query.$or = [{ name: searchRegex }, { sensorId: searchRegex }];
     }
 

@@ -45,7 +45,7 @@ export class AlertController {
   static async acknowledgeAlert(req, res, next) {
     try {
       const { alertId } = req.params;
-      const { acknowledgedBy } = req.body || {};
+      const acknowledgedBy = req.auth?.username || req.body?.acknowledgedBy;
       const result = await AlertService.acknowledgeAlert(alertId, acknowledgedBy);
       return res.status(200).json({
         success: true,
@@ -60,7 +60,8 @@ export class AlertController {
   static async resolveAlert(req, res, next) {
     try {
       const { alertId } = req.params;
-      const { resolvedBy, resolutionNotes } = req.body || {};
+      const resolvedBy = req.auth?.username || req.body?.resolvedBy;
+      const { resolutionNotes } = req.body || {};
       const result = await AlertService.resolveAlert(alertId, resolvedBy, resolutionNotes);
       return res.status(200).json({
         success: true,

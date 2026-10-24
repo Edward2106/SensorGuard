@@ -1,0 +1,111 @@
+name: sensorguard-phase8-staging
+x-app: &app
+  image: sensorguard-phase8:local
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs: [/tmp, /app/logs]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  mem_limit: 768m
+  cpus: 1.0
+  networks: [private]
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: '3'}
+  environment: &environment
+    NODE_ENV: production
+    HOST: 0.0.0.0
+    PORT: 3000
+    AUTH_ORIGINS: https://localhost:8443
+    TRUST_SINGLE_PROXY: 'true'
+    LEGACY_API_KEY_ENABLED: 'false'
+    DEVICE_API_KEY: ${DEVICE_API_KEY:?Set isolated staging device key}
+    MONGODB_URI: mongodb://sensorguard:${MONGO_APP_PASSWORD:?Set staging MongoDB app password}@mongo:27017/sensorguard_staging?authSource=sensorguard_staging
+    MONGODB_DB_NAME: sensorguard_staging
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    REDIS_USERNAME: sensorguard
+    REDIS_PASSWORD: ${REDIS_PASSWORD:?Set staging Redis password}
+    DD_TRACE_ENABLED: 'false'
+    SENSORGUARD_METRICS_ENABLED: 'false'
+  depends_on:
+    mongo: {condition: service_healthy}
+    redis: {condition: service_healthy}
+services:
+  api:
+    <<: *app
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  worker:
+    <<: *app
+    command: [node, src/worker.js]
+    stop_grace_period: 70s
+    healthcheck:
+      test: [CMD, node, scripts/check-worker.js]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ['127.0.0.1:8443:443']
+    volumes: ['./Caddyfile:/etc/caddy/Caddyfile:ro', 'caddy_data:/data', 'caddy_config:/config']
+    networks: [edge, private]
+    depends_on:
+      api: {condition: service_healthy}
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: staging-root
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set staging root password}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set staging app password}
+    volumes: ['mongo_data:/data/db', './mongo-init.js:/docker-entrypoint-initdb.d/sg.js:ro']
+    networks: [private]
+    mem_limit: 1g
+    command: [mongod, --wiredTigerCacheSizeGB, '0.25']
+    healthcheck:
+      test: [CMD, mongosh, --quiet, --eval, "quit(db.adminCommand('ping').ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    user: redis
+    entrypoint: [sh, /opt/sg/redis-entrypoint.sh]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set staging Redis password}
+    volumes: ['redis_data:/data', './redis-entrypoint.sh:/opt/sg/redis-entrypoint.sh:ro']
+    networks: [private]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli --user sensorguard ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+networks:
+  edge: {}
+  private: {internal: true}
+volumes:
+  mongo_data: {}
+  redis_data: {}
+  caddy_data: {}
+  caddy_config: {}
