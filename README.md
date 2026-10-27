@@ -1,316 +1,168 @@
-# SensorGuard
+# SensorGuard — Hệ thống giám sát IoT & phát hiện bất thường thời gian thực
 
-## 1. Giới thiệu
+SensorGuard là nền tảng thu thập dữ liệu vi mô từ cảm biến IoT, xử lý luồng sự kiện qua hàng đợi bất đồng bộ và lưu trữ tối ưu trên MongoDB Time Series. Hệ thống tự động nhận diện chỉ số vượt ngưỡng bằng cơ chế chống rung (hysteresis), phát hiện bất thường thống kê nâng cao (Moving Average, EWMA, Z-Score) và trực quan hóa toàn diện trên giao diện web đa nền tảng.
 
-SensorGuard là hệ thống giám sát cảm biến IoT và phát hiện sự cố theo thời gian thực. Hệ thống thu thập các chỉ số đo lường từ thiết bị cảm biến (nhiệt độ, độ ẩm, độ rung), chuyển qua hàng đợi xử lý nền, lưu trữ vào cơ sở dữ liệu chuỗi thời gian (Time Series), tự động phát hiện các chỉ số vượt ngưỡng hoặc mất kết nối, đồng thời hiển thị thông tin trực quan trên giao diện web.
+---
 
-Dự án giúp giải quyết bài toán giám sát thiết bị tập trung, cảnh báo kịp thời khi phần cứng gặp trục trặc và hỗ trợ đội ngũ vận hành theo dõi trạng thái hệ thống ổn định.
+## Mục lục
+- [1. Tổng quan](#1-tổng-quan)
+- [2. Tính năng nổi bật](#2-tính-năng-nổi-bật)
+- [3. Công nghệ sử dụng](#3-công-nghệ-sử-dụng)
+- [4. Kiến trúc hệ thống](#4-kiến-trúc-hệ-thống)
+- [5. Cài đặt và chạy Demo](#5-cài-đặt-và-chạy-demo)
+- [6. Kiểm thử và chất lượng mã nguồn](#6-kiểm-thử-và-chất-lượng-mã-nguồn)
+- [7. Giới hạn hiện tại](#7-giới-hạn-hiện-tại)
+- [8. Thông tin dự án](#8-thông-tin-dự-án)
 
-## 2. Chức năng chính
+---
 
-### Chức năng đã hoàn thiện:
-- **Quản lý cảm biến:** Đăng ký mới cảm biến, tra cứu danh sách có phân trang trên máy chủ, tìm kiếm theo mã hoặc tên, lọc theo loại, cơ sở (facility) và khu vực (zone), chỉnh sửa thông tin cấu hình và ngưỡng cảnh báo.
-- **Thu thập dữ liệu cảm biến:** Tiếp nhận dữ liệu đo lường đơn lẻ hoặc theo lô (batch) qua REST API, sử dụng hàng đợi BullMQ để đệm dữ liệu tránh quá tải.
-- **Theo dõi nhiệt độ, độ ẩm và độ rung:** Hỗ trợ ba loại cảm biến phổ biến với đơn vị đo tương ứng (°C, %, mm/s).
-- **Phát hiện dữ liệu bất thường:** So sánh dữ liệu thực tế với ngưỡng cảnh báo (warningLow, warningHigh, criticalLow, criticalHigh); áp dụng cơ chế chống rung (hysteresis) và yêu cầu nhiều bản ghi đạt chuẩn liên tiếp trước khi phục hồi trạng thái.
-- **Tạo và xử lý cảnh báo:** Tự động tạo sự cố (incident) khi phát hiện bất thường hoặc mất kết nối; hỗ trợ quy trình chuyển trạng thái từ đang mở (open), đã ghi nhận (acknowledged) sang đã giải quyết (resolved).
-- **Giả lập cảm biến IoT:** Công cụ dòng lệnh (CLI) giả lập lưu lượng dữ liệu với nhiều kịch bản: bình thường, quá nhiệt, độ ẩm cao, rung lắc mạnh, ngắt kết nối và gửi dữ liệu đột biến.
-- **Xem biểu đồ và dữ liệu trên website:** Giao diện React hiển thị biểu đồ đường đo lường thời gian thực, bảng phân phối thiết bị và danh sách sự cố.
-- **Theo dõi hoạt động hệ thống:** Kiểm tra trạng thái hoạt động (liveness probe qua `/health`), tính sẵn sàng của cơ sở dữ liệu (readiness probe qua `/ready`), và trạng thái cụm worker qua `/api/v1/workers`.
-- **Xác thực và phân quyền người dùng (RBAC):** Đăng nhập/đăng xuất bảo mật với MongoDB-backed sessions; băm mật khẩu bằng thuật toán scrypt với salt ngẫu nhiên; phân chia 3 vai trò (ADMIN, OPERATOR, VIEWER) thực thi nghiêm ngặt tại backend; tự động hết hạn phiên và thu hồi phiên ngay lập tức khi khóa tài khoản hoặc thay đổi vai trò; bảo vệ chống tấn công CSRF và session fixation.
-- **Giám sát nhịp tim Worker (Heartbeat Probe):** Định kỳ ghi nhận nhịp tim worker (10 giây) vào Redis registry (`sg:workers:<db>`), tự động chuyển sang `degraded` khi worker dừng hoặc mất kết nối MongoDB, tự hết hạn (stale sau 30 giây) nếu tiến trình worker bị tắt đột ngột.
-- **Môi trường Staging và Cổng Caddy HTTPS:** Cấu hình Docker Compose (`deploy/compose.yml`) triển khai stack staging hoàn chỉnh với Caddy Reverse Proxy hỗ trợ HTTPS nội bộ (`https://localhost:8443`), mạng nội bộ `private` cô lập hoàn toàn API, Worker, MongoDB và Redis.
-- **Quy trình sao lưu và phục hồi BSON:** Kịch bản kiểm chứng quy trình sao lưu và phục hồi toàn diện (`mongodump`/`mongorestore`), bảo toàn đầy đủ các Time Series collections (`sensor_readings`) và chỉ mục mà không ảnh hưởng đến dữ liệu phát triển.
+## 1. Tổng quan
 
-### Chức năng chưa có hoặc dự kiến phát triển tiếp:
-- Chưa có API tổng hợp dữ liệu lịch sử theo từng khung giờ hoặc ngày (analytics hiện hiển thị phân phối tức thời).
-- Chưa kích hoạt gửi cảnh báo qua Email/SMS/Webhook ra bên ngoài.
+* **Bài toán giải quyết**: Giám sát phân tán nhiều thiết bị phần cứng (nhiệt độ, độ ẩm, độ rung) theo thời gian thực; tránh nghẽn cổ chai khi lưu lượng tăng đột biến; giảm thiểu báo động giả do nhiễu đo lường; cung cấp công cụ phân tích xu hướng lịch sử có giới hạn tải nghiêm ngặt.
+* **Mục tiêu**: Đảm bảo luồng dữ liệu viễn trắc (telemetry) được hấp thụ an toàn qua bộ đệm hàng đợi, dữ liệu chuỗi thời gian nén gọn, truy vấn thống kê nhanh và cơ chế bảo mật phân quyền đạt chuẩn doanh nghiệp.
+* **Đối tượng sử dụng**: Kỹ sư vận hành hệ thống (Operator), Chuyên viên phân tích (Viewer/Analyst) và Quản trị viên (Admin) phụ trách thiết bị IoT công nghiệp.
+
+---
+
+## 2. Tính năng nổi bật
+
+### IoT Monitoring & Ingestion
+* **Thu thập linh hoạt**: Hấp thụ telemetry đơn lẻ hoặc theo lô (batch) qua REST API với API Key chuyên dụng cho thiết bị (`DEVICE`).
+* **Đệm hàng đợi bất đồng bộ**: Sử dụng BullMQ trên nền Redis để san phẳng lưu lượng ghi, tách biệt hoàn toàn tiến trình API và tiến trình xử lý nền (Worker).
+* **Quản lý cảm biến**: Đăng ký, cập nhật cấu hình ngưỡng, phân loại theo khu vực (zone) và cơ sở (facility), lọc và tìm kiếm nhanh.
+
+### Advanced Analytics (Trọng tâm Phase 9)
+* **MongoDB Time Series Aggregation**: Khai thác pipeline `$dateTrunc` UTC, `$setWindowFields` và `$shift` giới hạn tối đa 100.000 bản ghi, chống tràn bộ nhớ và chống rò rỉ dữ liệu tương lai.
+* **Moving Average & EWMA nhân quả**: Baseline trượt và EWMA chỉ sử dụng các bucket quan sát trong quá khứ, không lấy dữ liệu hiện tại làm baseline của chính nó.
+* **Z-score Anomaly Detection**: Đánh dấu trực quan các điểm dị biệt vượt ngưỡng thống kê (|Z| > 3 hoặc độ lệch EWMA đáng kể).
+* *Lưu ý*: Các điểm dị biệt thống kê (Statistical Anomaly Markers) hiện phục vụ trực quan hóa phân tích xu hướng, không tự động kích hoạt tạo sự cố.
+
+### Incident Management & Hysteresis
+* **Chống rung (Hysteresis)**: Ngăn chặn cảnh báo chập chờn khi chỉ số dao động quanh ngưỡng kích hoạt.
+* **Tự động phục hồi**: Yêu cầu liên tiếp nhiều bản ghi đạt ngưỡng an toàn trước khi tự động đóng sự cố.
+* **Vòng đời sự cố**: Quản lý trạng thái minh bạch: `open` → `acknowledged` → `resolved`.
+
+### Authentication & RBAC
+* **Phiên làm việc bảo mật**: Lưu phiên trong MongoDB, mật khẩu băm thuật toán `scrypt` kèm salt ngẫu nhiên, cookie `HttpOnly`, `SameSite=Strict`.
+* **Phân quyền 3 vai trò**:
+  * `ADMIN`: Toàn quyền quản trị người dùng, cấu hình và giám sát.
+  * `OPERATOR`: Quản lý cảm biến và xử lý sự cố.
+  * `VIEWER`: Chỉ xem bảng điều khiển và đồ thị phân tích, không có quyền chỉnh sửa.
+* **Chống CSRF & Rebinding**: Kiểm tra nghiêm ngặt custom headers và nguồn gốc Origin.
+
+### System Health & Observability
+* **Probes**: `/health` (kiểm tra tiến trình), `/ready` (kiểm tra kết nối MongoDB/Redis), `/api/v1/workers` (giám sát nhịp tim Worker).
+* **Worker Heartbeat Registry**: Nhịp tim worker ghi nhận định kỳ vào Redis, tự phát hiện trạng thái trễ (stale sau 30 giây).
+
+---
 
 ## 3. Công nghệ sử dụng
 
-- **Backend:** Node.js (>=20), Express 4.
-- **Frontend:** React 19, TypeScript, Vite, TanStack Query, Recharts, Lucide React.
-- **Cơ sở dữ liệu:** MongoDB (hỗ trợ Time Series collection, Mongoose).
-- **Hàng đợi & Bộ nhớ đệm:** Redis, BullMQ, ioredis.
-- **Giám sát:** Datadog tracer (`dd-trace`), DogStatsD (cấu hình sẵn sàng cho APM và log định dạng JSON).
-- **Môi trường & Container:** Docker, Docker Compose.
-- **Kiểm thử giao diện:** Node Test Runner, Vitest, Testing Library.
+| Tầng hệ thống | Công nghệ | Mục đích |
+| :--- | :--- | :--- |
+| **Backend** | Node.js (>=20 LTS), Express 4 | REST API, Business Logic, Security Boundary |
+| **Frontend** | React 19, TypeScript, Vite, Recharts | Giao diện điều khiển SPA, vẽ biểu đồ phân tích thời gian thực |
+| **Database** | MongoDB 7.0 (Time Series Collections) | Lưu trữ chuỗi thời gian nén và tổng hợp thống kê |
+| **Message Queue** | Redis 7, BullMQ, ioredis | Đệm sự kiện viễn trắc, đồng bộ heartbeat worker |
+| **Infrastructure** | Docker, Docker Compose, Caddy 2 | Container hóa, reverse proxy TLS nội bộ, cô lập mạng |
+| **Observability** | Datadog tracer (`dd-trace`), Winston | Tích hợp APM, structured logging định dạng JSON |
+| **CI / Testing** | GitHub Actions, Node Test Runner, Vitest | Tự động hóa kiểm thử, typecheck, build và quét an ninh |
 
-## 4. Cấu trúc thư mục
+*Ghi chú*: Mã nguồn đã tích hợp sẵn thư viện `dd-trace` và log JSON tương thích Datadog; việc đẩy số liệu lên Datadog Cloud tùy thuộc vào khóa API và agent cấu hình tại môi trường chạy.
 
-```text
-SensorGuard/
-├── src/                  # Mã nguồn chính của backend
-│   ├── config/           # Cấu hình môi trường, kết nối MongoDB và Redis
-│   ├── controllers/      # Bộ điều hướng xử lý logic request cho sensor, reading, alert
-│   ├── middleware/       # Middleware xác thực API key, validate dữ liệu, xử lý lỗi
-│   ├── models/           # Mô hình dữ liệu Mongoose (Sensor, Reading, Incident)
-│   ├── queues/           # Cấu hình hàng đợi BullMQ tiếp nhận dữ liệu
-│   ├── routes/           # Định nghĩa các tuyến đường REST API
-│   ├── services/         # Logic nghiệp vụ xử lý dữ liệu và phát hiện bất thường
-│   ├── observability/    # Thiết lập logger JSON và metric tích hợp Datadog
-│   ├── app.js            # Khởi tạo ứng dụng Express
-│   ├── index.js          # Điểm khởi chạy tiến trình Backend API
-│   └── worker.js         # Điểm khởi chạy tiến trình Telemetry Worker
-├── frontend/             # Ứng dụng giao diện người dùng (React + Vite)
-│   ├── src/              # Mã nguồn giao diện: components, pages, charts
-│   ├── server/           # Cổng nội bộ (BFF gateway) bảo vệ API key
-│   └── package.json      # Cấu hình thư viện và script của frontend
-├── simulator/            # Công cụ CLI giả lập dữ liệu cảm biến gửi về hệ thống
-├── monitoring/           # Cấu hình mẫu Datadog dashboard, monitor và collector
-├── scripts/              # Các kịch bản khởi tạo database, chỉ mục, dữ liệu mẫu
-├── config/               # Cấu hình môi trường phát triển phụ trợ
-├── Dockerfile            # Cấu hình build container cho ứng dụng
-├── docker-compose.yml    # Cấu hình chạy ứng dụng và dịch vụ qua Docker
-└── README.md             # Tài liệu hướng dẫn dự án
+---
+
+## 4. Kiến trúc hệ thống
+
+```mermaid
+flowchart TD
+    subgraph Ingestion["Thu thập & Đệm"]
+        Dev["IoT Devices / Simulator"] -->|"POST /readings (X-API-Key)"| API["Backend API (Express)"]
+        API -->|"Queue Job"| Redis["Redis 7 (BullMQ)"]
+    end
+
+    subgraph Processing["Xử lý Nền"]
+        Redis -->|"Pop Event"| Worker["Telemetry Worker"]
+        Worker -->|"Write Time Series"| Mongo[("MongoDB 7.0\nsensor_readings")]
+        Worker -->|"Evaluate Thresholds"| Incidents["Incident Engine\n(Hysteresis)"]
+        Incidents -->|"Upsert Incident"| MongoInc[("MongoDB 7.0\nincidents")]
+        Worker -.->|"Heartbeat (10s)"| Redis
+    end
+
+    subgraph Dashboard["Trực quan hóa & Quản trị"]
+        User["Người dùng (Browser)"] -->|"HTTPS / TLS (Port 8443)"| Caddy["Caddy Reverse Proxy"]
+        Caddy -->|"Proxy (Port 3000)"| API
+        API -->|"Query Stats & Time Series"| Mongo
+        API -->|"Check Session & RBAC"| MongoUsers[("MongoDB 7.0\nusers & sessions")]
+        Caddy -->|"Serve Static SPA"| ReactUI["React Dashboard\n(Vite + Recharts)"]
+    end
 ```
 
-## 5. Yêu cầu trước khi chạy
+---
 
-- **Hệ điều hành:** Windows 10/11, macOS hoặc Linux.
-- **Node.js:** Phiên bản 20 trở lên (khuyến nghị Node.js 22 LTS) cùng trình quản lý gói `npm`.
-- **MongoDB:** Phiên bản 6.0 trở lên hỗ trợ Time Series collection (mặc định cổng `27017`).
-- **Redis:** Phiên bản 7.x (mặc định cổng `6379`).
-- **Git:** Dùng để clone mã nguồn.
+## 5. Cài đặt và chạy Demo
 
-Lưu ý: Đảm bảo dịch vụ MongoDB và Redis đã được khởi động trên máy tính trước khi chạy backend.
+### Yêu cầu tiên quyết
+* **Hệ điều hành**: Windows 10/11, macOS, Linux.
+* **Công cụ**: Docker Desktop (hỗ trợ Compose v2), Node.js >= 20 LTS (nếu chạy kiểm thử cục bộ).
 
-## 6. Cài đặt
+### Khởi chạy môi trường Staging (HTTPS nội bộ)
+Hệ thống Staging mẫu được cấu hình đầy đủ mạng cô lập, xác thực bảo mật và Caddy TLS tự cấp chứng chỉ tại cổng `8443`.
 
-Mở PowerShell tại thư mục dự án và thực hiện các bước sau:
+1. **Chuẩn bị cấu hình môi trường**:
+   Sao chép mẫu cấu hình staging:
+   ```powershell
+   Copy-Item .env.staging .env.staging.local
+   ```
+   *(Tệp `.env.staging.local` chứa các biến: `MONGO_ROOT_PASSWORD`, `MONGO_APP_PASSWORD`, `REDIS_PASSWORD`, `DEVICE_API_KEY`, `AUTH_ORIGINS`. Không dùng mật khẩu mặc định trên production).*
 
-### Bước 1: Cài đặt thư viện dependencies
+2. **Khởi động các dịch vụ**:
+   ```powershell
+   docker compose --env-file .env.staging.local -f deploy/compose.yml up -d --build
+   ```
 
-```powershell
-# Cài đặt thư viện cho backend
-npm install
-
-# Cài đặt thư viện cho frontend
-npm --prefix frontend install
-```
-
-### Bước 2: Thiết lập biến môi trường
-
-Sao chép tệp mẫu `.env.example` thành `.env`:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Mở tệp `.env` vừa tạo và chỉnh sửa cấu hình nếu cần (ví dụ chuỗi kết nối MongoDB, thông tin Redis hoặc giá trị `API_KEY`). Không dùng khóa bí mật mặc định trên môi trường triển khai thực tế.
-
-### Bước 3: Khởi tạo cơ sở dữ liệu
-
-Chạy lệnh để tạo Time Series collection, đánh chỉ mục (indexes) và thêm dữ liệu cảm biến mẫu:
-
-```powershell
-npm run db:setup
-```
-
-## 7. Chạy dự án
-
-Hệ thống bao gồm các tiến trình độc lập, nên mở các cửa sổ terminal riêng biệt để quan sát nhật ký hoạt động:
-
-### Cửa sổ 1: Chạy Backend API
-```powershell
-npm start
-```
-API lắng nghe tại địa chỉ: `http://127.0.0.1:3000`
-
-### Cửa sổ 2: Chạy Telemetry Worker
-```powershell
-npm run worker
-```
-Worker sẽ kết nối Redis, lắng nghe hàng đợi BullMQ, ghi nhận dữ liệu đo vào MongoDB và kiểm tra ngưỡng cảnh báo.
-
-### Cửa sổ 3: Chạy giao diện React Dashboard
-```powershell
-npm run frontend:dev
-```
-Truy cập giao diện tại trình duyệt: `http://127.0.0.1:5173`
-
-### Cửa sổ 4: Chạy IoT Simulator (tùy chọn)
-Để giả lập cảm biến gửi dữ liệu liên tục về hệ thống:
-```powershell
-# Xem hướng dẫn các tùy chọn kịch bản
-npm run simulate -- --help
-
-# Gửi dữ liệu bình thường (120 cảm biến, 20 gói tin/giây trong 30 giây)
-npm run simulate -- --sensors 120 --rate 20 --duration 30 --scenario NORMAL
+3. **Kiểm tra trạng thái container**:
+   ```powershell
+   docker compose --env-file .env.staging.local -f deploy/compose.yml ps
+   ```
+   *Đảm bảo các container `api`, `worker`, `mongo`, `redis`, `proxy` đều ở trạng thái `healthy` hoặc `running`.*
 
-# Thử nghiệm kịch bản nhiệt độ cao
-npm run simulate -- --sensors 10 --rate 5 --duration 20 --scenario HIGH_TEMPERATURE
-```
+4. **Truy cập ứng dụng**:
+   Mở trình duyệt tại: **`https://localhost:8443`**
+   *(Do sử dụng chứng chỉ TLS nội bộ tự ký bởi Caddy trong môi trường local, thiết lập tin cậy chứng chỉ gốc của Caddy hoặc xác nhận kết nối an toàn để đăng nhập).*
 
-### Kiểm tra tự động frontend (Typecheck, Test, Build)
-```powershell
-npm run frontend:typecheck
-npm run frontend:test
-npm run frontend:build
-```
+5. **Dừng hệ thống an toàn (Bảo toàn dữ liệu)**:
+   ```powershell
+   # Dừng container mà KHÔNG xóa volumes dữ liệu
+   docker compose --env-file .env.staging.local -f deploy/compose.yml down
+   ```
 
-## 8. Các chức năng trên giao diện
+---
 
-Giao diện web (`http://127.0.0.1:5173`) bao gồm các phân hệ chính:
+## 6. Kiểm thử và chất lượng mã nguồn
 
-- **Tổng quan (Overview):** Hiển thị thẻ tóm tắt tổng số cảm biến, số lượng trực tuyến (dựa trên dữ liệu thực tế), ngoại tuyến, bảo trì, tổng sự cố đang mở và số sự cố nghiêm trọng (Critical). Đồng thời hiển thị danh sách sự cố gần nhất và bản ghi dữ liệu mới nhận.
-- **Quản lý cảm biến (Sensors):** Liệt kê toàn bộ cảm biến có hỗ trợ phân trang từ máy chủ, tìm kiếm theo tên/mã, bộ lọc trạng thái và loại cảm biến, form đăng ký mới cảm biến và hộp thoại xem chi tiết thông số.
-- **Giám sát thời gian thực (Monitoring):** Lựa chọn từng cảm biến để theo dõi biểu đồ đường đo lường nhiệt độ, độ ẩm hoặc độ rung, kèm theo các đường ranh giới ngưỡng cảnh báo (Warning/Critical) và bảng lịch sử đo lường (giới hạn tối đa 200 bản ghi mới nhất).
-- **Trung tâm sự cố (Incidents):** Theo dõi toàn bộ cảnh báo phát sinh từ hệ thống, lọc theo mức độ nghiêm trọng (low, medium, high, critical) và trạng thái (open, acknowledged, resolved). Hỗ trợ nút thao tác tiếp nhận (Acknowledge) và đóng sự cố (Resolve).
-- **Phân tích mạng lưới (Analytics):** Thống kê biểu đồ cột về cơ cấu loại cảm biến, tình trạng kết nối, trạng thái vận hành và phân bổ sự cố.
-- **Sức khỏe hệ thống (System Health):** Theo dõi trạng thái kiểm tra `/health` và `/ready` của API, trạng thái kết nối tới MongoDB và Redis, cùng đường dẫn tiện ích tới các bảng giám sát Datadog.
-- **Cài đặt (Settings):** Tùy chỉnh chế độ hiển thị sáng/tối (Dark/Light mode), thời gian tự động làm mới dữ liệu (5s - 60s), múi giờ hiển thị và khoảng thời gian biểu đồ mặc định.
+Toàn bộ quy trình kiểm thử và chất lượng được thực thi tự động qua GitHub Actions và kiểm chứng môi trường thực:
 
-## 9. API chính
+* **Backend Test Suite**: **49/49 PASS** (100%), bao gồm kiểm thử Time Series trên MongoDB thật, Z-score, EWMA, kiểm thử tràn bộ nhớ, RBAC 3 vai trò và chu kỳ sự cố Phase 8 regression.
+* **Frontend Test Suite**: **22/22 PASS** (5 gateway boundary tests + 17 React component unit tests).
+* **TypeScript & Build**: Typecheck `tsc --noEmit` đạt 0 lỗi; Vite production build thành công.
+* **Kiểm tra an ninh**: `npm audit` đạt **0 vulnerabilities** ở cả backend và frontend; quét mã nguồn không rò rỉ secret.
+* **GitHub Actions CI**: Pipeline `Verify` tự động chạy container MongoDB 7.0 cô lập và hoàn tất toàn bộ kiểm thử trong 52 giây.
 
-Hệ thống hỗ trợ 2 cơ chế xác thực:
-1. **Người dùng (Web UI):** Sử dụng Cookie phiên làm việc an toàn (`__Secure-sg_session` ở production hoặc `sg_session` ở development) kèm tiêu đề CSRF `X-SensorGuard-UI: 1` và `Content-Type: application/json`.
-2. **Thiết bị IoT & Dịch vụ nền:** Gửi tiêu đề HTTP `X-API-Key: <DEVICE_API_KEY>` (chỉ được phép gửi bản ghi đo lường telemetry vào `/api/v1/readings`) hoặc khóa dịch vụ `API_KEY` (khi bật `LEGACY_API_KEY_ENABLED`).
+---
 
-| Phương thức | Đường dẫn | Xác thực / Quyền hạn | Mô tả |
-|---|---|---|---|
-| GET | `/health` | Công khai | Kiểm tra tiến trình backend API còn hoạt động hay không (liveness) |
-| GET | `/ready` | Công khai | Kiểm tra tính sẵn sàng kết nối tới MongoDB và Redis (readiness) |
-| POST | `/api/v1/auth/login` | Công khai (Rate limit 10/15p) | Đăng nhập hệ thống, cấp cookie phiên làm việc |
-| POST | `/api/v1/auth/logout` | Session + CSRF | Đăng xuất, hủy cookie và thu hồi phiên trên cơ sở dữ liệu |
-| GET | `/api/v1/auth/me` | Session (Mọi vai trò) | Lấy thông tin tài khoản và vai trò đang đăng nhập |
-| GET | `/api/v1/auth/users` | Session (Chỉ ADMIN) | Danh sách tài khoản người dùng có phân trang |
-| POST | `/api/v1/auth/users` | Session (Chỉ ADMIN) | Tạo tài khoản người dùng mới (ADMIN, OPERATOR, VIEWER) |
-| PATCH | `/api/v1/auth/users/:id` | Session (Chỉ ADMIN) | Khóa/mở tài khoản, cập nhật vai trò hoặc đổi mật khẩu |
-| GET | `/api/v1/workers` | Session hoặc API Key | Kiểm tra tình trạng nhịp tim (heartbeat) của cụm worker nền |
-| GET | `/api/v1/sensors` | Mọi vai trò / API Key | Lấy danh sách cảm biến (hỗ trợ phân trang, tìm kiếm, lọc) |
-| POST | `/api/v1/sensors` | Chỉ ADMIN | Đăng ký cảm biến mới kèm cấu hình ngưỡng cảnh báo |
-| GET | `/api/v1/sensors/:sensorId` | Mọi vai trò / API Key | Xem thông tin chi tiết cấu hình một cảm biến |
-| PUT / PATCH | `/api/v1/sensors/:sensorId` | ADMIN, OPERATOR | Cập nhật thông số và ngưỡng cảnh báo của cảm biến |
-| DELETE | `/api/v1/sensors/:sensorId` | Chỉ ADMIN | Xóa cảm biến khỏi hệ thống |
-| GET | `/api/v1/sensors/stats` | Mọi vai trò / API Key | Thống kê số lượng cảm biến theo trạng thái |
-| GET | `/api/v1/sensors/:sensorId/readings` | Mọi vai trò / API Key | Lấy danh sách lịch sử đo lường của cảm biến |
-| GET | `/api/v1/sensors/:sensorId/readings/latest` | Mọi vai trò / API Key | Lấy bản ghi đo lường mới nhất của cảm biến |
-| POST | `/api/v1/readings` | Thiết bị (`DEVICE_API_KEY`) | Đưa 1 bản ghi đo lường vào hàng đợi BullMQ (người dùng bị chặn) |
-| POST | `/api/v1/readings/batch` | Thiết bị (`DEVICE_API_KEY`) | Đưa tập hợp nhiều bản ghi vào hàng đợi (tối đa 1000 bản ghi) |
-| GET | `/api/v1/incidents` | Mọi vai trò / API Key | Lấy danh sách sự cố cảnh báo (lọc theo mức độ, trạng thái) |
-| GET | `/api/v1/incidents/stats` | Mọi vai trò / API Key | Thống kê số lượng sự cố theo mức độ nghiêm trọng |
-| PATCH | `/api/v1/incidents/:alertId/acknowledge` | ADMIN, OPERATOR | Ghi nhận sự cố (tự động gắn danh tính người thực hiện) |
-| PATCH | `/api/v1/incidents/:alertId/resolve` | ADMIN, OPERATOR | Đóng và đánh dấu giải quyết sự cố kèm ghi chú giải pháp |
+## 7. Giới hạn hiện tại
 
-## 10. Giám sát bằng Datadog
+1. **Event-time Reconstruction**: Thống kê lịch sử được tái dựng theo nhãn thời gian của bản ghi (event time). Các bản ghi gửi đến trễ có thể cập nhật lại số liệu các bucket trong quá khứ.
+2. **Current Thresholds**: Biểu đồ phân tích áp dụng ngưỡng cấu hình hiện tại của cảm biến, chưa lưu vết lịch sử thay đổi ngưỡng theo từng mốc thời gian.
+3. **Statistical Anomaly Isolation**: Điểm dị biệt thống kê (Z-score/EWMA) hiện chỉ đóng vai trò phân tích trực quan trên dashboard, không tự kích hoạt tạo sự cố (Incident) để bảo đảm ổn định hệ thống.
+4. **Kênh thông báo ngoại vi**: Chưa kích hoạt thông báo sự cố đẩy ra bên ngoài qua Email, SMS hay Webhook.
+5. **Môi trường Internet**: Chưa thiết lập triển khai công khai ngoài Internet; hiện sẵn sàng cho môi trường nội bộ/Staging.
 
-Mã nguồn dự án đã tích hợp sẵn thư viện `dd-trace` và xuất nhật ký theo định dạng có cấu trúc JSON kèm mã định danh vết (Trace ID và Span ID):
+---
 
-- Chạy ứng dụng kèm APM:
-  ```powershell
-  npm run start:observed
-  npm run worker:observed
-  ```
-- Tệp nhật ký tự động ghi tại thư mục `logs/` (mỗi tiến trình lưu tệp riêng với cơ chế xoay vòng dung lượng 5 MiB, lưu tối đa 3 bản sao lưu).
-- Các chỉ số DogStatsD gửi qua cổng UDP `8125` trên máy cục bộ với tiền tố `sensorguard.*`.
-- Các tệp cấu hình mẫu cho bảng điều khiển và cảnh báo có sẵn tại thư mục `monitoring/` (`dashboard.json`, `monitors.json`).
+## 8. Thông tin dự án
 
-*Lưu ý rõ ràng:* Việc đẩy dữ liệu lên dịch vụ đám mây Datadog Cloud (Cloud Logs Explorer, Custom Metrics) chưa được kích hoạt vì Datadog Cloud là dịch vụ thương mại có phí. Toàn bộ thiết lập đo lường cục bộ an toàn, không tự động kích hoạt tính năng tính phí.
-
-## 11. Kiểm định hiệu năng và Độ tin cậy (Phase 8 Benchmark)
-
-Hệ thống đã thực hiện kiểm định tải (load test) trên hạ tầng cô lập với các kịch bản 20 req/s, 50 req/s và 100 req/s:
-
-- **Kịch bản 20 req/s (10 giây, 200 bản ghi):** Tỷ lệ thành công 100%, tỷ lệ lỗi 0%, độ trễ p50 = 27.9ms, p95 = 32.6ms, p99 = 70.9ms, tồn đọng hàng đợi cao nhất = 1 gói.
-- **Kịch bản 50 req/s (10 giây, 500 bản ghi):** Tỷ lệ thành công 100%, tỷ lệ lỗi 0%, độ trễ p50 = 17.5ms, p95 = 26.1ms, p99 = 27.9ms, tồn đọng hàng đợi cao nhất = 1 gói.
-- **Kịch bản 100 req/s (10 giây, 1000 bản ghi):** 
-  - Khi hệ thống đạt trạng thái ấm (warm cache/JIT) và điều kiện I/O ổn định: Tiếp nhận thành công 1000/1000 bản ghi (tốc độ đo được 99.82 req/s), tỷ lệ lỗi 0%, độ trễ p50 = 14.2ms, p95 = 22.3ms, p99 = 25.3ms, tồn đọng hàng đợi cao nhất = 9 gói, worker xử lý p95 = 45ms.
-  - *Điểm nghẽn xác nhận khi máy chủ chịu tải lạnh hoặc tài nguyên CPU/IO bị tranh chấp:* Trên môi trường máy trạm đơn máy chủ chạy chung cả API, Worker, MongoDB Time Series và Redis, điểm nghẽn chính nằm ở giới hạn in-flight request của client kiểm thử và chi phí xác thực rate limit/MongoDB write trước khi vào hàng đợi. Nếu độ trễ vượt quá ngưỡng timeout 5s của client, tỷ lệ lỗi có thể tăng lên ~1.1%. Do đó, trong môi trường sản xuất thực tế, khuyến nghị phân tách máy chủ cơ sở dữ liệu và cụm worker xử lý nền riêng biệt.
-
-## 12. Những giới hạn hiện tại
-
-- **Thống kê lịch sử dài hạn:** Advanced Analytics hỗ trợ tối đa 31 ngày, 1.000 bucket và 100.000 readings mỗi truy vấn. Biểu đồ raw Monitoring vẫn giới hạn 200 readings; chưa có rollup dài hạn hay lịch sử cấu hình ngưỡng.
-- **Kênh thông báo ra ngoài:** Chưa kích hoạt gửi cảnh báo trực tiếp qua Email, SMS hoặc Webhook (Discord/Slack/Telegram).
-- **Hạ tầng 100 req/s:** Đã được kiểm chứng thực tế đạt chuẩn trong điều kiện cô lập, nhưng để duy trì liên tục ở quy mô lớn hơn cần hạ tầng cụm phân tán (distributed cluster) có nhiều worker nodes.
-
-## 13. Hướng phát triển tiếp theo
-
-- Phase 10 đề xuất: rollup dài hạn có kiểm chứng, hiệu chuẩn statistical anomalies theo mùa vụ và kiểm thử trên workload staging thực tế.
-- Tích hợp module gửi thông báo tức thời qua Webhook và Email khi xuất hiện sự cố nghiêm trọng (Critical).
-- Kích hoạt quy trình CI/CD tự động hóa trên GitHub Actions khi đưa mã nguồn lên môi trường đám mây.
-
-## 14. Lưu ý bảo mật
-
-- **Không đưa tệp bí mật lên Git:** Tệp `.env`, `.env.*`, khóa API, chứng chỉ và các bản sao lưu cơ sở dữ liệu đã được khai báo nghiêm ngặt trong `.gitignore` và được kiểm tra tự động bằng `scripts/secret-check.js`.
-- **Cấu hình môi trường riêng:** Người dùng khi tải mã nguồn về cần tạo tệp `.env` riêng từ `.env.example` và thiết lập các khóa bí mật có độ dài tối thiểu 32 ký tự.
-- **Bảo vệ cổng nội bộ và HTTPS:** Trong môi trường staging, toàn bộ truy cập đi qua Caddy Reverse Proxy trên cổng HTTPS `https://localhost:8443`. Không mở cổng backend API hoặc database trực tiếp ra ngoài Internet.
-
-## 15. Advanced MongoDB Analytics (Phase 9)
-
-### API và cách dùng
-
-`GET /api/v1/analytics/series` dùng cùng middleware Auth/RBAC Phase 8. ADMIN, OPERATOR, VIEWER được đọc; service key chỉ dùng theo cấu hình hiện có; DEVICE bị từ chối. Browser dùng cookie HttpOnly hiện có, không nhúng API key. Không có endpoint tạo incident bằng thống kê.
-
-Ví dụ URL (gửi bằng session đã đăng nhập, thay sensorId và thời gian theo dữ liệu của bạn):
-
-```text
-/api/v1/analytics/series?sensorId=S-1&from=2026-10-01T00:00:00Z&to=2026-10-01T01:00:00Z&granularity=1m&window=12&alpha=0.2&zThreshold=3
-```
-
-Response gồm `data.sensor`, `data.series`, `data.summary` và `meta`. `series` có min/max/avg/count/stdDev, movingAverage, baselineStdDev, baselineCount, ewma, ewmaBaseline, zScore, ewmaScore, anomaly, timestamp, availableAt, partial. Summary có thống kê gộp theo số readings và độ dốc tuyến tính theo giờ; đây là mô tả xu hướng, không phải dự báo.
-
-- Bắt buộc một sensorId, `from` và `to` UTC ISO kết thúc bằng Z; khoảng `[from,to)`, không quá hiện tại hoặc 31 ngày. Offset khác UTC bị từ chối để tránh diễn giải mơ hồ.
-- Granularity: 1m/5m/15m/1h/1d; mặc định 5m. Tối đa 1.000 bucket và 100.000 readings phù hợp. Chọn granularity thô hơn cho khoảng dài (7 ngày nên dùng 1h).
-- Window 3–100 bucket (mặc định 12); alpha 0,01–1 (mặc định 0,2); zThreshold 1–10 (mặc định 3).
-- Aggregate có maxTimeMS 2.500, không spill disk; sensor lookup tối đa 1.000 ms. Tối đa 4 truy vấn Analytics đồng thời mỗi API process, ngoài rate limit Auth sẵn có.
-- HTTP 400 cho tham số/giới hạn không hợp lệ, 404 sensor không tồn tại, 429 khi bận (Retry-After: 1), 503 khi hết ngân sách MongoDB. Không trả kết quả bị cắt âm thầm.
-
-### Tính toán và giới hạn diễn giải
-
-Pipeline: `$match` sensor/type/unit/time và giá trị hữu hạn → `$project` → `$limit` 100001 → `$facet` kiểm tra overflow và `$group` với `$dateTrunc` UTC → `$setWindowFields` → `$shift` → scores → `$sort` theo thời gian → projection. Trên tập dưới giới hạn, mọi reading được group trước window; timestamp trùng được tính như các phép đo riêng, không tùy tiện xóa duplicate. Dữ liệu vượt giới hạn bị từ chối toàn bộ.
-
-Moving average và rolling sample standard deviation chỉ lấy **các bucket đã quan sát trước bucket hiện tại**, trọng số bằng nhau giữa các bucket. Độ lệch chuẩn trong từng bucket và summary là population standard deviation của readings. Z-score dùng prior MA và prior sample σ. EWMA hiện tại dùng alpha; `ewmaBaseline` dịch lùi một bucket, dùng cho `ewmaScore`. Không dùng bucket hiện tại hoặc tương lai làm baseline của chính nó. Marker bật nếu |Z-score| hoặc |EWMA score| vượt ngưỡng.
-
-Scores cần tối thiểu 3 bucket trước đó và σ > 1e-12; nếu thiếu/σ bằng 0 thì null. EWMA khởi tạo từ bucket đầu trong khoảng đã chọn. Không dùng lịch sử trước `from`, không điền missing buckets bằng 0. `availableAt` là cuối bucket hoặc `to` đối với bucket cuối chưa đầy; chart dùng mốc này. Nhãn thời gian trên chart/table theo tùy chọn timezone giao diện, biên bucket luôn UTC.
-
-Đây là tái dựng theo **event time**: reading đến muộn có thể thay đổi thống kê lịch sử. Không phải backtest theo thời điểm dữ liệu thực sự đến. Ngưỡng so sánh là cấu hình sensor hiện tại, không phải cấu hình lịch sử. Bucket averaging có thể che một spike ngắn; min/max vẫn được giữ. Không có seasonality calibration, rollup dài hạn, hoặc thay đổi Incident Detection/hysteresis Phase 8.
-
-### Giao diện
-
-Analytics và Monitoring dùng chung explorer: sensor/time range/granularity/window/alpha, chart min/max/mean, prior MA, prior EWMA, marker đỏ, ngưỡng, summary và bảng thay thế có thể cuộn trên mobile. Loading/empty/error có trạng thái riêng. Analytics là **historical snapshot tải khi nhấn Apply**, không tự polling; các panel cũ vẫn polling theo Settings. Không phải WebSocket.
-
-### Kiểm chứng ngày 27/10/2026 (Hoàn tất Staging Verification & Regression)
-
-- Backend: **49/49**, không skip, gồm MongoDB Time Series thật (MongoDB 7.0.45 & 8.3), high/low outliers, single reading, timestamp trùng/đảo thứ tự, gaps, zero variance, warm-up, biên khoảng, future leakage, query malformed/timezone, overflow 100001, concurrency và Auth/RBAC.
-- Staging Docker Services: Staging API và Worker đã cập nhật image Phase 9 (`sensorguard-phase9:verified-local`), kết nối MongoDB 7.0.45 (`sensorguard-phase8-staging-mongo-1`), Redis 7 (`sensorguard-phase8-staging-redis-1`), Caddy Reverse Proxy TLS (`sensorguard-phase8-staging-proxy-1`, cổng 8443). Mọi container đều healthy.
-- Staging HTTPS & RBAC (`https://localhost:8443`): Kiểm chứng TLS, `/health` 200, `/ready` 200, `/` 200. Worker heartbeat độc lập hiển thị `online`. Auth/RBAC kiểm chứng đầy đủ 3 vai trò (ADMIN, OPERATOR, VIEWER) đều truy cập được Analytics và nhận dữ liệu chính xác; DEVICE API key bị từ chối truy cập Analytics; Session logout vô hiệu hóa session hợp lệ.
-- Browser QA (HTTPS Staging): Đăng nhập thành công với tài khoản VIEWER. Analytics Explorer tải dữ liệu thật, bộ lọc sensor, time range selector, granularity selector hoạt động chính xác. Hiển thị đúng Moving Average, EWMA, Z-score anomaly marker (phát hiện chính xác 1 anomaly tại 05:45 UTC, z-score 40), threshold lines và empty states. Giao diện kiểm tra thực tế trên Desktop và Mobile responsive (390px, 375px) không có lỗi JavaScript nghiêm trọng, bảng số liệu cuộn mượt mà. Quyền VIEWER chỉ đọc, không thể chỉnh sửa dữ liệu hay can thiệp vào các tài nguyên khác.
-- Đối chiếu dữ liệu Staging: Toàn bộ dữ liệu demo ban đầu được bảo toàn nguyên vẹn: 9 sensors ban đầu (missing: 0), 40 readings ban đầu (missing: 0, changed: 0), 13 incidents ban đầu (missing: 0), 40 telemetry events ban đầu (missing: 0, changed: 0). Dữ liệu phát sinh từ QA (+1 sensor QA, +10 readings, +2 incidents) được phân định rõ ràng; queue không tồn đọng job pending hay failed.
-- Frontend: **22/22** (5 gateway tests + 17 UI tests); TypeScript typecheck và production build đạt 100%. npm audit backend và frontend: 0 vulnerabilities; secret pattern scan đạt.
-
-Chạy tests: `npm.cmd test` (MongoDB integration chạy với `PHASE9_TEST_MONGO_URI='mongodb://127.0.0.1:27029'`).
-```powershell
-$env:PHASE9_TEST_MONGO_URI='mongodb://127.0.0.1:27029'
-npm.cmd test
-npm.cmd run frontend:test
-npm.cmd run frontend:typecheck
-npm.cmd run frontend:build
-npm.cmd audit
-npm.cmd --prefix frontend audit
-```
-
-### Benchmark đo thực tế, không tuyên bố speedup
-
-Lần đo cuối: MongoDB 8.3.2 local, 240.000 readings/4 sensor; workload 1 sensor, 60.000 readings → 1.000 bucket, cùng pipeline và dataset bất biến trước/sau index. Mỗi giai đoạn 5 warm-up +50 lần đo tuần tự, không hint. Đã kết thúc tests/build trước lượt này. Báo cáo raw và explain đầy đủ: `scratch/phase9-benchmark-1793079968701.json`.
-
-| Chỉ số | Trước compound index | Sau compound index |
-|---|---:|---:|
-| Median query (ms) | 99,46 | 105,63 |
-| p95 (ms) | 132,64 | 147,87 |
-| p99 (ms) | 155,12 | 217,91 |
-| totalDocsExamined (Time Series storage buckets) | 240 | 60 |
-| totalKeysExamined | 0 | 61 |
-| explain executionTimeMillis, một lần đo (ms) | 181 | 126 |
-
-Index thử nghiệm `{metadata.sensorId:1,timestamp:-1}` giảm scan nhưng **không cải thiện latency ở lượt đo này**. Index này đã có trong schema/setup hiện tại; Phase 9 không tự thêm vào database thật. Explain là một phép đo riêng, không thay thế latency distribution. Index build ở fixture mất 42,60 ms.
-
-Write cost được đo trên hai collection Time Series mới, 4 sensor, 1.000 readings/batch, đổi thứ tự ghi luân phiên, 5 warm-up +20 batch đo mỗi bên. Median: 4,31 ms không compound index, 4,08 ms có index; p95: 5,45/5,00 ms; p99: 7,31/5,16 ms. Chênh lệch nhỏ này không chứng minh index làm ghi nhanh hơn: có noise/cache/packing; index vẫn tốn dung lượng và công cập nhật. Chưa đo durable replicated write concern, disk amplification hay long-run throughput.
-
-p95/p99 dùng nearest rank; p99 là maximum khi n=50 (read) hoặc n=20 (write), nên độ tin cậy tail còn hạn chế. Read phases luôn before rồi after; chưa randomized/cold-cache. Máy trạm dùng chung, browser QA chạy nhẹ; không phải SLA production. Lượt cũ 7 mẫu 81,88→84,24 ms chỉ là lịch sử. Hướng tối ưu tiếp theo: đo workload thật, rollup giảm raw scan và cache có bounded TTL sau khi xác minh tính nhất quán; chưa áp dụng khi thiếu bằng chứng.
-
-### Rollback và trạng thái phát hành
-
-Không có migration hay index mới trên development/staging; rollback chỉ ở code, không cần rollback dữ liệu. Khi cần, có thể gỡ route/explorer/allowlist Analytics bằng patch review riêng, giữ toàn bộ thay đổi Phase 8 và dữ liệu.
-
-Trạng thái kiểm chứng tổng thể: **COMPLETE**. Toàn bộ tính năng Phase 9 Advanced Analytics, backend/frontend tests, production build, bảo mật RBAC/TLS và kiểm chứng Staging môi trường thực tế đều đạt chuẩn phát hành.
+* **Mã nguồn**: [GitHub — Edward2106/SensorGuard](https://github.com/Edward2106/SensorGuard)
+* **Phiên bản hiện tại**: Phase 9 (Advanced Time Series Analytics & UI Integration)
+* **Giấy phép (License)**: ISC License
