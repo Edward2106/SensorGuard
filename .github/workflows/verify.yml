@@ -42,3 +42,29 @@ jobs:
       - run: node scripts/prepare-staging.js
       - run: docker compose --env-file .env.staging.local -f deploy/compose.yml config --quiet
       - run: docker build -f deploy/Dockerfile -t sensorguard-ci:local .
+      - name: Verify incident intelligence through real API, queues and workers
+        run: |
+          docker network create phase10-ci
+          docker network connect phase10-ci phase9-ci-mongo
+          docker run -d --name phase10-ci-redis --network phase10-ci redis:7-alpine
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {randomBytes} from 'node:crypto';
+          fs.writeFileSync(process.env.RUNNER_TEMP+'/intelligence.env',[
+            'NODE_ENV=test','HOST=0.0.0.0','PORT=3000',
+            'AUTH_ORIGINS=http://127.0.0.1:5173','LEGACY_API_KEY_ENABLED=false',
+            'DEVICE_API_KEY='+randomBytes(32).toString('hex'),
+            'MONGODB_URI=mongodb://phase9-ci-mongo:27029/sg_intelligence_qa_ci',
+            'MONGODB_DB_NAME=sg_intelligence_qa_ci',
+            'REDIS_HOST=phase10-ci-redis','REDIS_PORT=6379',
+            'DD_TRACE_ENABLED=false','SENSORGUARD_METRICS_ENABLED=false',
+            'DEMO_API_ORIGIN=http://api:3000'
+          ].join('\n'),{mode:0o600});
+          JS
+          docker run -d --name phase10-ci-api --network phase10-ci --network-alias api --env-file "$RUNNER_TEMP/intelligence.env" sensorguard-ci:local
+          docker run -d --name phase10-ci-worker --network phase10-ci --env-file "$RUNNER_TEMP/intelligence.env" sensorguard-ci:local node src/worker.js
+          for attempt in $(seq 1 30); do
+            if docker exec phase10-ci-api node -e "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then break; fi
+            sleep 1
+          done
+          docker exec phase10-ci-api node scripts/verify-intelligence.js

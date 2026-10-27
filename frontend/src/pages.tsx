@@ -865,7 +865,7 @@ export function Incidents() {
             <>
               <h3>{detail.data.data.title}</h3>
               <p className="wrap">
-                <b>Sensor:</b> {detail.data.data.sensorId} · <b>Incident ID:</b> {detail.data.data.alertId}
+                <Link to={'/intelligence?incidentId=' + encodeURIComponent(detail.data.data.alertId)}>Analyze incident evidence</Link><br /><b>Sensor:</b> {detail.data.data.sensorId} · <b>Incident ID:</b> {detail.data.data.alertId}
               </p>
               <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                 <Badge value={detail.data.data.severity} />

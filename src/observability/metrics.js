@@ -4,12 +4,14 @@ export const METRICS = Object.freeze({
   'sensors.online':'g', 'sensors.offline':'g', 'telemetry.received':'c', 'telemetry.processed':'c', 'telemetry.failed':'c',
   'queue.waiting':'g', 'queue.failed':'g', 'worker.duration_ms':'h', 'incidents.open':'g', 'incidents.critical':'g',
   'detection.duration_ms':'h', 'api.requests':'c', 'api.errors':'c', 'api.duration_ms':'h',
+  'recovery.proposed':'c', 'recovery.approved':'c', 'recovery.verified':'c', 'recovery.failed':'c', 'recovery.timed_out':'c',
 });
-export function createMetrics({ enabled = process.env.SENSORGUARD_METRICS_ENABLED === 'true', port = Number(process.env.DD_DOGSTATSD_PORT || 8125), host = '127.0.0.1', service = process.env.DD_SERVICE || (process.argv[1]?.endsWith('worker.js') ? 'sensorguard-worker' : 'sensorguard-api'), environment = process.env.DD_ENV || env.NODE_ENV, socketFactory = () => dgram.createSocket('udp4') } = {}) {
+export function createMetrics({ enabled = process.env.SENSORGUARD_METRICS_ENABLED === 'true', recoveryEnabled = process.env.SENSORGUARD_RECOVERY_METRICS_ENABLED === 'true', port = Number(process.env.DD_DOGSTATSD_PORT || 8125), host = '127.0.0.1', service = process.env.DD_SERVICE || (process.argv[1]?.endsWith('worker.js') ? 'sensorguard-worker' : 'sensorguard-api'), environment = process.env.DD_ENV || env.NODE_ENV, socketFactory = () => dgram.createSocket('udp4') } = {}) {
   let socket; const stats = { sent:0, dropped:0, errors:0 }; let pending = 0;
   const clean = s => String(s).replace(/[^a-zA-Z0-9_.-]/g,'_').slice(0,60);
   function emit(name, value = 1) {
     if (!enabled || !METRICS[name] || !Number.isFinite(value) || value < 0) return;
+    if (name.startsWith('recovery.') && !recoveryEnabled) return;
     try {
       if (!socket) { socket = socketFactory(); socket.on('error', () => { stats.errors++; }); socket.unref(); }
       if (pending >= 128) { stats.dropped++; return; }

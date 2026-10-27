@@ -16,6 +16,7 @@ export function allowed(role, method, rawPath) {
   if (role === 'DEVICE') return method === 'POST' && /^\/readings(?:\/batch)?\/?$/.test(path);
   if (!roles.includes(role) && role !== 'service') return false;
   if (method === 'GET') return true;
+  if (/^\/recovery(?:\/|$)/.test(path)) return ['ADMIN','OPERATOR'].includes(role) && ((method === 'POST' && (/^\/recovery\/propose\/?$/.test(path) || /^\/recovery\/rec-[a-f0-9]{64}\/verify\/?$/.test(path))) || (method === 'PATCH' && /^\/recovery\/rec-[a-f0-9]{64}\/approve\/?$/.test(path)));
   if (/^\/readings(?:\/|$)/.test(path)) return role === 'service';
   if (role === 'ADMIN' || role === 'service') return true;
   return role === 'OPERATOR' && ((['PATCH','PUT'].includes(method) && /^\/sensors\/[^/]+\/?$/.test(path)) || (method === 'PATCH' && /^\/(alerts|incidents)\/[^/]+\/(acknowledge|resolve)\/?$/.test(path)));

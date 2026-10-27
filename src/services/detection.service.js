@@ -35,7 +35,7 @@ export function createDetector(db = mongoose.connection.db, { clock = () => new 
             _id: incidentId, ...incident, status: 'open', active: true, managedBy: 'detector',
             eventId, lastEventId: eventId, observedAt, severity, readingValue: value, threshold,
             createdAt: at, updatedAt: at, detectionRevision: state.revision,
-            history: [{ action: 'opened', at, observedAt, eventId, severity }],
+            history: [{ action: 'opened', at, observedAt, eventId, severity, value, threshold }],
           } }, { upsert: true, ...durable });
         } catch (error) { if (error.code !== 11000) throw error;
           if (!await incidents.findOne({ _id: incidentId, alertId: incident.alertId })) throw error;

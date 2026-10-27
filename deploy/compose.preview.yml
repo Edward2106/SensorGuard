@@ -1,0 +1,6 @@
+# Explicit local preview overlay; retains the existing staging project and volumes.
+services:
+  api:
+    image: sensorguard-intelligence:preview-local
+  worker:
+    image: sensorguard-intelligence:preview-local

@@ -3,6 +3,8 @@ import sensorRoutes from './sensor.routes.js';
 import readingRoutes from './reading.routes.js';
 import alertRoutes from './alert.routes.js';
 import analyticsRoutes from './analytics.routes.js';
+import recoveryRoutes from './recovery.routes.js';
+import demoRoutes from './demo.routes.js';
 import { authenticateApiKey } from '../middleware/auth.js';
 import { isMongoConnected } from '../config/db.js';
 import { isRedisConnected } from '../config/redis.js';
@@ -64,6 +66,8 @@ apiRouter.get('/ready', async (req, res) => {
 // Protect resource routes with API Key Authentication
 apiRouter.use('/sensors', authenticateApiKey, sensorRoutes);
 apiRouter.use('/analytics', authenticateApiKey, analyticsRoutes);
+apiRouter.use('/recovery', authenticateApiKey, recoveryRoutes);
+apiRouter.use('/demos', authenticateApiKey, demoRoutes);
 apiRouter.use('/readings', authenticateApiKey, readingRoutes);
 apiRouter.use('/alerts', authenticateApiKey, alertRoutes);
 apiRouter.use('/incidents', authenticateApiKey, alertRoutes); // Alias incidents to alerts

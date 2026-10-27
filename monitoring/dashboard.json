@@ -110,6 +110,26 @@
           }
         ]
       }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Recovery workflow outcomes (requires explicit metrics enablement)",
+        "requests": [
+          {
+            "q": "sum:sensorguard.recovery.verified{env:development}.as_count()",
+            "display_type": "line"
+          },
+          {
+            "q": "sum:sensorguard.recovery.failed{env:development}.as_count()",
+            "display_type": "line"
+          },
+          {
+            "q": "sum:sensorguard.recovery.timed_out{env:development}.as_count()",
+            "display_type": "line"
+          }
+        ]
+      }
     }
   ]
 }

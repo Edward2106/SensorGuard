@@ -785,3 +785,11 @@ td small {
 .login form, .login label { display: grid; gap: 12px; }
 .login form { gap: 20px; }
 @media (max-width: 760px) { .topbar { flex-wrap: wrap; height: auto; min-height: 78px; padding: 12px; } }
+
+/* Keep long incident/workflow identifiers readable on narrow displays. */
+.intelligence-page { min-width: 0; overflow-wrap: anywhere; }
+.intelligence-page code { overflow-wrap: anywhere; word-break: break-word; }
+.intelligence-page .filters label { min-width: 0; max-width: 100%; }
+.intelligence-page input, .intelligence-page select { max-width: 100%; }
+
+.intelligence-page button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }

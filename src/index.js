@@ -9,6 +9,7 @@ import { SHUTDOWN_TIMEOUT_MS } from './config/constants.js';
 import { closeTelemetryQueue } from './queues/telemetry.queue.js';
 import { initializeAuth } from './security/store.js';
 import { closeHeartbeatReader } from './routes/index.js';
+import { closeDemoQueue } from './queues/demo.worker.js';
 
 let server = null;
 let isShuttingDown = false;
@@ -48,6 +49,7 @@ async function gracefulShutdown(signal, exitCode = 0) {
     }
 
     await closeTelemetryQueue();
+    await closeDemoQueue();
     closeHeartbeatReader();
     closeReadingCache();
     await disconnectMongo();

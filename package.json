@@ -13,6 +13,7 @@
     "worker:observed": "node scripts/start-observed.js worker",
     "simulate": "node simulator/index.js",
     "demo:live": "node scripts/verify-live-demo.js",
+    "verify:intelligence": "node scripts/verify-intelligence.js",
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "worker": "node src/worker.js",

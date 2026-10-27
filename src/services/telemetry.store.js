@@ -33,13 +33,14 @@ export function createTelemetryStore(db = mongoose.connection.db) {
       const sensor = await sensors.findOne({ sensorId: data.sensorId });
       if (!sensor) throw new UnrecoverableError('Unknown sensor');
       const reading = { eventId: data.eventId, timestamp: new Date(data.timestamp), metadata: { sensorId: data.sensorId, type: data.type || sensor.type, location: data.location || sensor.location }, value: data.value, unit: data.unit || sensor.unit, status: 'ok' };
+      if (sensor.metadata?.simulated === true) Object.assign(reading.metadata, { simulated: true, demoRunId: sensor.metadata.demoRunId });
       for (const key of ['temperature', 'humidity', 'vibration', 'batteryLevel', 'signalStrength']) if (data[key] !== undefined) reading[key] = data[key];
       // Fingerprint client-owned values, excluding mutable sensor enrichment and queue metadata.
       const identity = { sensorId: data.sensorId, timestamp: data.timestampGenerated ? undefined : data.timestamp, value: data.value };
       for (const key of ['type', 'unit', 'temperature', 'humidity', 'vibration', 'batteryLevel', 'signalStrength']) if (data[key] !== undefined) identity[key] = data[key];
       const hash = createHash('sha256').update(JSON.stringify(identity)).digest('hex');
       try {
-        await events.updateOne({ _id: data.eventId }, { $setOnInsert: { hash, reading, state: 'pending', detectionPending: true, updatedAt: new Date() } }, { upsert: true, ...durable });
+        await events.updateOne({ _id: data.eventId }, { $setOnInsert: { hash, reading, state: 'pending', detectionPending: true, receivedAt: data.enqueuedAt && Number.isFinite(Date.parse(data.enqueuedAt)) ? new Date(data.enqueuedAt) : null, updatedAt: new Date() } }, { upsert: true, ...durable });
       } catch (error) { if (error.code !== 11000) throw error; }
       const event = await events.findOne({ _id: data.eventId }, { readConcern: { level: 'majority' } });
       if (event.hash !== hash) throw new UnrecoverableError('eventId conflicts with an existing payload');

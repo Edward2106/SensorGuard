@@ -28,6 +28,8 @@ const Incidents = lazy(() => import('./pages').then(m => ({ default: m.Incidents
 const Analytics = lazy(() => import('./pages').then(m => ({ default: m.Analytics })));
 const Health = lazy(() => import('./pages').then(m => ({ default: m.Health })));
 const Settings = lazy(() => import('./pages').then(m => ({ default: m.Settings })));
+const IncidentIntelligence = lazy(() => import('./IncidentIntelligence'));
+const DemoCenter = lazy(() => import('./DemoCenter'));
 
 const links = [
   ['/', 'Overview', Activity],
@@ -35,6 +37,8 @@ const links = [
   ['/monitoring', 'Real-time monitoring', Thermometer],
   ['/incidents', 'Incidents', ShieldAlert],
   ['/analytics', 'Analytics', ChartColumn],
+  ['/intelligence', 'Incident intelligence', ShieldAlert],
+  ['/demo', 'Demo Center', Activity],
   ['/health', 'System health', HeartPulse],
   ['/settings', 'Settings', Cog],
 ] as const;
@@ -88,7 +92,7 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
-          ● Local development
+          ● Self-hosted workspace
           <small>Operations console</small>
         </div>
       </aside>
@@ -153,6 +157,8 @@ function App() {
               <Route path="/monitoring" element={<Monitoring />} />
               <Route path="/incidents" element={<Incidents />} />
               <Route path="/analytics" element={<Analytics />} />
+              <Route path="/intelligence" element={<IncidentIntelligence />} />
+              <Route path="/demo" element={<DemoCenter />} />
               <Route path="/health" element={<Health />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/users" element={<Users />} />
