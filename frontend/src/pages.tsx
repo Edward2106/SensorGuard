@@ -20,6 +20,7 @@ import {
 } from './core';
 
 const Chart = lazy(() => import('./Charts'));
+const AnalyticsExplorer = lazy(() => import('./AnalyticsExplorer'));
 const Distribution = lazy(() => import('./Charts').then(m => ({ default: m.Distribution })));
 
 export function Overview() {
@@ -667,6 +668,8 @@ export function Monitoring({
             </p>
           </Panel>
 
+          <Suspense fallback={<p>Loading analytics…</p>}><AnalyticsExplorer key={sensor} fixedSensor={sensor}/></Suspense>
+
           <div className="table-wrap">
             <table>
               <thead>
@@ -906,6 +909,7 @@ export function Analytics() {
     <>
       <h1>Network analytics</h1>
       <p className="subtitle">Current aggregate counts from live backend APIs · no fabricated data.</p>
+      <Suspense fallback={<p>Loading analytics…</p>}><AnalyticsExplorer /></Suspense>
       <State q={sensors} />
       <State q={alerts} />
 
@@ -943,10 +947,8 @@ export function Analytics() {
 
       <Panel title="Historical trends limitation">
         <p>
-          The existing backend does not expose time-bucketed aggregation queries for telemetry or incident historical
-          trends. These charts present actual live distribution totals rather than fabricated trend series. Downloading
-          unbounded Time Series collections to compute client-side trends is intentionally disallowed to protect
-          performance.
+          Telemetry trends above use bounded MongoDB aggregation. Incident historical trends and historical threshold
+          configuration are not yet available. The distribution charts show current totals, not historical snapshots.
         </p>
       </Panel>
     </>

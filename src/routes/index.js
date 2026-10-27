@@ -2,6 +2,7 @@ import { Router } from 'express';
 import sensorRoutes from './sensor.routes.js';
 import readingRoutes from './reading.routes.js';
 import alertRoutes from './alert.routes.js';
+import analyticsRoutes from './analytics.routes.js';
 import { authenticateApiKey } from '../middleware/auth.js';
 import { isMongoConnected } from '../config/db.js';
 import { isRedisConnected } from '../config/redis.js';
@@ -26,6 +27,7 @@ apiRouter.get('/', (req, res) => {
     endpoints: {
       sensors: '/api/v1/sensors',
       readings: '/api/v1/readings',
+      analytics: '/api/v1/analytics/series',
       alerts: '/api/v1/alerts',
       incidents: '/api/v1/incidents',
       health: '/api/v1/health',
@@ -61,6 +63,7 @@ apiRouter.get('/ready', async (req, res) => {
 
 // Protect resource routes with API Key Authentication
 apiRouter.use('/sensors', authenticateApiKey, sensorRoutes);
+apiRouter.use('/analytics', authenticateApiKey, analyticsRoutes);
 apiRouter.use('/readings', authenticateApiKey, readingRoutes);
 apiRouter.use('/alerts', authenticateApiKey, alertRoutes);
 apiRouter.use('/incidents', authenticateApiKey, alertRoutes); // Alias incidents to alerts

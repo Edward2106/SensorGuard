@@ -220,13 +220,13 @@ Hệ thống đã thực hiện kiểm định tải (load test) trên hạ tầ
 
 ## 12. Những giới hạn hiện tại
 
-- **Thống kê lịch sử dài hạn:** Backend chưa có các API tính toán tổng hợp (aggregation theo ngày/tuần/tháng) cho dữ liệu chuỗi thời gian lớn; biểu đồ giao diện hiện hiển thị tối đa 200 điểm dữ liệu gần nhất.
+- **Thống kê lịch sử dài hạn:** Advanced Analytics hỗ trợ tối đa 31 ngày, 1.000 bucket và 100.000 readings mỗi truy vấn. Biểu đồ raw Monitoring vẫn giới hạn 200 readings; chưa có rollup dài hạn hay lịch sử cấu hình ngưỡng.
 - **Kênh thông báo ra ngoài:** Chưa kích hoạt gửi cảnh báo trực tiếp qua Email, SMS hoặc Webhook (Discord/Slack/Telegram).
 - **Hạ tầng 100 req/s:** Đã được kiểm chứng thực tế đạt chuẩn trong điều kiện cô lập, nhưng để duy trì liên tục ở quy mô lớn hơn cần hạ tầng cụm phân tán (distributed cluster) có nhiều worker nodes.
 
 ## 13. Hướng phát triển tiếp theo
 
-- Xây dựng API tổng hợp dữ liệu lịch sử theo từng khung giờ và ngày phục vụ phân tích xu hướng dài hạn.
+- Phase 10 đề xuất: rollup dài hạn có kiểm chứng, hiệu chuẩn statistical anomalies theo mùa vụ và kiểm thử trên workload staging thực tế.
 - Tích hợp module gửi thông báo tức thời qua Webhook và Email khi xuất hiện sự cố nghiêm trọng (Critical).
 - Kích hoạt quy trình CI/CD tự động hóa trên GitHub Actions khi đưa mã nguồn lên môi trường đám mây.
 
@@ -235,3 +235,82 @@ Hệ thống đã thực hiện kiểm định tải (load test) trên hạ tầ
 - **Không đưa tệp bí mật lên Git:** Tệp `.env`, `.env.*`, khóa API, chứng chỉ và các bản sao lưu cơ sở dữ liệu đã được khai báo nghiêm ngặt trong `.gitignore` và được kiểm tra tự động bằng `scripts/secret-check.js`.
 - **Cấu hình môi trường riêng:** Người dùng khi tải mã nguồn về cần tạo tệp `.env` riêng từ `.env.example` và thiết lập các khóa bí mật có độ dài tối thiểu 32 ký tự.
 - **Bảo vệ cổng nội bộ và HTTPS:** Trong môi trường staging, toàn bộ truy cập đi qua Caddy Reverse Proxy trên cổng HTTPS `https://localhost:8443`. Không mở cổng backend API hoặc database trực tiếp ra ngoài Internet.
+
+## 15. Advanced MongoDB Analytics (Phase 9)
+
+### API và cách dùng
+
+`GET /api/v1/analytics/series` dùng cùng middleware Auth/RBAC Phase 8. ADMIN, OPERATOR, VIEWER được đọc; service key chỉ dùng theo cấu hình hiện có; DEVICE bị từ chối. Browser dùng cookie HttpOnly hiện có, không nhúng API key. Không có endpoint tạo incident bằng thống kê.
+
+Ví dụ URL (gửi bằng session đã đăng nhập, thay sensorId và thời gian theo dữ liệu của bạn):
+
+```text
+/api/v1/analytics/series?sensorId=S-1&from=2026-10-01T00:00:00Z&to=2026-10-01T01:00:00Z&granularity=1m&window=12&alpha=0.2&zThreshold=3
+```
+
+Response gồm `data.sensor`, `data.series`, `data.summary` và `meta`. `series` có min/max/avg/count/stdDev, movingAverage, baselineStdDev, baselineCount, ewma, ewmaBaseline, zScore, ewmaScore, anomaly, timestamp, availableAt, partial. Summary có thống kê gộp theo số readings và độ dốc tuyến tính theo giờ; đây là mô tả xu hướng, không phải dự báo.
+
+- Bắt buộc một sensorId, `from` và `to` UTC ISO kết thúc bằng Z; khoảng `[from,to)`, không quá hiện tại hoặc 31 ngày. Offset khác UTC bị từ chối để tránh diễn giải mơ hồ.
+- Granularity: 1m/5m/15m/1h/1d; mặc định 5m. Tối đa 1.000 bucket và 100.000 readings phù hợp. Chọn granularity thô hơn cho khoảng dài (7 ngày nên dùng 1h).
+- Window 3–100 bucket (mặc định 12); alpha 0,01–1 (mặc định 0,2); zThreshold 1–10 (mặc định 3).
+- Aggregate có maxTimeMS 2.500, không spill disk; sensor lookup tối đa 1.000 ms. Tối đa 4 truy vấn Analytics đồng thời mỗi API process, ngoài rate limit Auth sẵn có.
+- HTTP 400 cho tham số/giới hạn không hợp lệ, 404 sensor không tồn tại, 429 khi bận (Retry-After: 1), 503 khi hết ngân sách MongoDB. Không trả kết quả bị cắt âm thầm.
+
+### Tính toán và giới hạn diễn giải
+
+Pipeline: `$match` sensor/type/unit/time và giá trị hữu hạn → `$project` → `$limit` 100001 → `$facet` kiểm tra overflow và `$group` với `$dateTrunc` UTC → `$setWindowFields` → `$shift` → scores → `$sort` theo thời gian → projection. Trên tập dưới giới hạn, mọi reading được group trước window; timestamp trùng được tính như các phép đo riêng, không tùy tiện xóa duplicate. Dữ liệu vượt giới hạn bị từ chối toàn bộ.
+
+Moving average và rolling sample standard deviation chỉ lấy **các bucket đã quan sát trước bucket hiện tại**, trọng số bằng nhau giữa các bucket. Độ lệch chuẩn trong từng bucket và summary là population standard deviation của readings. Z-score dùng prior MA và prior sample σ. EWMA hiện tại dùng alpha; `ewmaBaseline` dịch lùi một bucket, dùng cho `ewmaScore`. Không dùng bucket hiện tại hoặc tương lai làm baseline của chính nó. Marker bật nếu |Z-score| hoặc |EWMA score| vượt ngưỡng.
+
+Scores cần tối thiểu 3 bucket trước đó và σ > 1e-12; nếu thiếu/σ bằng 0 thì null. EWMA khởi tạo từ bucket đầu trong khoảng đã chọn. Không dùng lịch sử trước `from`, không điền missing buckets bằng 0. `availableAt` là cuối bucket hoặc `to` đối với bucket cuối chưa đầy; chart dùng mốc này. Nhãn thời gian trên chart/table theo tùy chọn timezone giao diện, biên bucket luôn UTC.
+
+Đây là tái dựng theo **event time**: reading đến muộn có thể thay đổi thống kê lịch sử. Không phải backtest theo thời điểm dữ liệu thực sự đến. Ngưỡng so sánh là cấu hình sensor hiện tại, không phải cấu hình lịch sử. Bucket averaging có thể che một spike ngắn; min/max vẫn được giữ. Không có seasonality calibration, rollup dài hạn, hoặc thay đổi Incident Detection/hysteresis Phase 8.
+
+### Giao diện
+
+Analytics và Monitoring dùng chung explorer: sensor/time range/granularity/window/alpha, chart min/max/mean, prior MA, prior EWMA, marker đỏ, ngưỡng, summary và bảng thay thế có thể cuộn trên mobile. Loading/empty/error có trạng thái riêng. Analytics là **historical snapshot tải khi nhấn Apply**, không tự polling; các panel cũ vẫn polling theo Settings. Không phải WebSocket.
+
+### Kiểm chứng ngày 27/10/2026 (Hoàn tất Staging Verification & Regression)
+
+- Backend: **49/49**, không skip, gồm MongoDB Time Series thật (MongoDB 7.0.45 & 8.3), high/low outliers, single reading, timestamp trùng/đảo thứ tự, gaps, zero variance, warm-up, biên khoảng, future leakage, query malformed/timezone, overflow 100001, concurrency và Auth/RBAC.
+- Staging Docker Services: Staging API và Worker đã cập nhật image Phase 9 (`sensorguard-phase9:verified-local`), kết nối MongoDB 7.0.45 (`sensorguard-phase8-staging-mongo-1`), Redis 7 (`sensorguard-phase8-staging-redis-1`), Caddy Reverse Proxy TLS (`sensorguard-phase8-staging-proxy-1`, cổng 8443). Mọi container đều healthy.
+- Staging HTTPS & RBAC (`https://localhost:8443`): Kiểm chứng TLS, `/health` 200, `/ready` 200, `/` 200. Worker heartbeat độc lập hiển thị `online`. Auth/RBAC kiểm chứng đầy đủ 3 vai trò (ADMIN, OPERATOR, VIEWER) đều truy cập được Analytics và nhận dữ liệu chính xác; DEVICE API key bị từ chối truy cập Analytics; Session logout vô hiệu hóa session hợp lệ.
+- Browser QA (HTTPS Staging): Đăng nhập thành công với tài khoản VIEWER. Analytics Explorer tải dữ liệu thật, bộ lọc sensor, time range selector, granularity selector hoạt động chính xác. Hiển thị đúng Moving Average, EWMA, Z-score anomaly marker (phát hiện chính xác 1 anomaly tại 05:45 UTC, z-score 40), threshold lines và empty states. Giao diện kiểm tra thực tế trên Desktop và Mobile responsive (390px, 375px) không có lỗi JavaScript nghiêm trọng, bảng số liệu cuộn mượt mà. Quyền VIEWER chỉ đọc, không thể chỉnh sửa dữ liệu hay can thiệp vào các tài nguyên khác.
+- Đối chiếu dữ liệu Staging: Toàn bộ dữ liệu demo ban đầu được bảo toàn nguyên vẹn: 9 sensors ban đầu (missing: 0), 40 readings ban đầu (missing: 0, changed: 0), 13 incidents ban đầu (missing: 0), 40 telemetry events ban đầu (missing: 0, changed: 0). Dữ liệu phát sinh từ QA (+1 sensor QA, +10 readings, +2 incidents) được phân định rõ ràng; queue không tồn đọng job pending hay failed.
+- Frontend: **22/22** (5 gateway tests + 17 UI tests); TypeScript typecheck và production build đạt 100%. npm audit backend và frontend: 0 vulnerabilities; secret pattern scan đạt.
+
+Chạy tests: `npm.cmd test` (MongoDB integration chạy với `PHASE9_TEST_MONGO_URI='mongodb://127.0.0.1:27029'`).
+```powershell
+$env:PHASE9_TEST_MONGO_URI='mongodb://127.0.0.1:27029'
+npm.cmd test
+npm.cmd run frontend:test
+npm.cmd run frontend:typecheck
+npm.cmd run frontend:build
+npm.cmd audit
+npm.cmd --prefix frontend audit
+```
+
+### Benchmark đo thực tế, không tuyên bố speedup
+
+Lần đo cuối: MongoDB 8.3.2 local, 240.000 readings/4 sensor; workload 1 sensor, 60.000 readings → 1.000 bucket, cùng pipeline và dataset bất biến trước/sau index. Mỗi giai đoạn 5 warm-up +50 lần đo tuần tự, không hint. Đã kết thúc tests/build trước lượt này. Báo cáo raw và explain đầy đủ: `scratch/phase9-benchmark-1793079968701.json`.
+
+| Chỉ số | Trước compound index | Sau compound index |
+|---|---:|---:|
+| Median query (ms) | 99,46 | 105,63 |
+| p95 (ms) | 132,64 | 147,87 |
+| p99 (ms) | 155,12 | 217,91 |
+| totalDocsExamined (Time Series storage buckets) | 240 | 60 |
+| totalKeysExamined | 0 | 61 |
+| explain executionTimeMillis, một lần đo (ms) | 181 | 126 |
+
+Index thử nghiệm `{metadata.sensorId:1,timestamp:-1}` giảm scan nhưng **không cải thiện latency ở lượt đo này**. Index này đã có trong schema/setup hiện tại; Phase 9 không tự thêm vào database thật. Explain là một phép đo riêng, không thay thế latency distribution. Index build ở fixture mất 42,60 ms.
+
+Write cost được đo trên hai collection Time Series mới, 4 sensor, 1.000 readings/batch, đổi thứ tự ghi luân phiên, 5 warm-up +20 batch đo mỗi bên. Median: 4,31 ms không compound index, 4,08 ms có index; p95: 5,45/5,00 ms; p99: 7,31/5,16 ms. Chênh lệch nhỏ này không chứng minh index làm ghi nhanh hơn: có noise/cache/packing; index vẫn tốn dung lượng và công cập nhật. Chưa đo durable replicated write concern, disk amplification hay long-run throughput.
+
+p95/p99 dùng nearest rank; p99 là maximum khi n=50 (read) hoặc n=20 (write), nên độ tin cậy tail còn hạn chế. Read phases luôn before rồi after; chưa randomized/cold-cache. Máy trạm dùng chung, browser QA chạy nhẹ; không phải SLA production. Lượt cũ 7 mẫu 81,88→84,24 ms chỉ là lịch sử. Hướng tối ưu tiếp theo: đo workload thật, rollup giảm raw scan và cache có bounded TTL sau khi xác minh tính nhất quán; chưa áp dụng khi thiếu bằng chứng.
+
+### Rollback và trạng thái phát hành
+
+Không có migration hay index mới trên development/staging; rollback chỉ ở code, không cần rollback dữ liệu. Khi cần, có thể gỡ route/explorer/allowlist Analytics bằng patch review riêng, giữ toàn bộ thay đổi Phase 8 và dữ liệu.
+
+Trạng thái kiểm chứng tổng thể: **COMPLETE**. Toàn bộ tính năng Phase 9 Advanced Analytics, backend/frontend tests, production build, bảo mật RBAC/TLS và kiểm chứng Staging môi trường thực tế đều đạt chuẩn phát hành.
