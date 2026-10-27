@@ -164,5 +164,4 @@ Toàn bộ quy trình kiểm thử và chất lượng được thực thi tự 
 ## 8. Thông tin dự án
 
 * **Mã nguồn**: [GitHub — Edward2106/SensorGuard](https://github.com/Edward2106/SensorGuard)
-* **Phiên bản hiện tại**: Phase 9 (Advanced Time Series Analytics & UI Integration)
 * **Giấy phép (License)**: ISC License
