@@ -1,7 +1,7 @@
 import { logger as obsLogger } from './observability/logger.js';
 import { Worker } from 'bullmq';
 import mongoose from 'mongoose';
-import { startGaugeCollector } from './observability/metrics.js';
+import { startGaugeCollector, metrics } from './observability/metrics.js';
 import { getTelemetryQueue, closeTelemetryQueue } from './queues/telemetry.queue.js';
 import { pathToFileURL } from 'node:url';
 import { env } from './config/env.js';
@@ -43,7 +43,7 @@ export async function startWorker() {
   const processor = createTelemetryProcessor({ store, cache: createReadingCache(getCacheClient(true)) });
   const worker = createTelemetryWorker(processor);
   await worker.waitUntilReady();
-  const heartbeat = startHeartbeat(worker);
+  const heartbeat = startHeartbeat(worker, { onHeartbeat: () => metrics.emit('worker.heartbeat') });
   let health;
   try { health = await startSensorHealthWorker(store); }
   catch (error) { await heartbeat.close(); await worker.close(); throw error; }

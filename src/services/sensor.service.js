@@ -2,6 +2,7 @@ import { Sensor } from '../models/sensor.model.js';
 import { NotFoundError, ConflictError, ValidationError } from '../errors/app-errors.js';
 import { validateDetectionConfig } from './detection.rules.js';
 import { literalPattern } from '../security/query.js';
+import { HISTORY_LIMIT, thresholdConfig, configDigest, historyEntry, sealEntry } from './threshold-history.js';
 
 const editable = ['name', 'type', 'unit', 'status', 'location', 'thresholds', 'samplingIntervalSeconds', 'metadata', 'detectionSettings'];
 const editableData = data => Object.fromEntries(editable.filter(key => data[key] !== undefined).map(key => [key, data[key]]));
@@ -10,7 +11,7 @@ export class SensorService {
   /**
    * Create a new sensor
    */
-  static async createSensor(data) {
+  static async createSensor(data, actor) {
     try { validateDetectionConfig(data); } catch (error) { throw new ValidationError(error.message); }
     const existing = await Sensor.findOne({ sensorId: data.sensorId.toUpperCase() });
     if (existing) {
@@ -22,8 +23,11 @@ export class SensorService {
       sensorId: data.sensorId.toUpperCase(),
     });
 
+    sensor.configurationRevision = 1;
+    sensor.thresholdHistory = [sealEntry(historyEntry({}, sensor.toObject(), actor))];
     await sensor.save();
-    return sensor.toJSON();
+    const result = sensor.toJSON(); delete result.thresholdHistory;
+    return result;
   }
 
   /**
@@ -91,7 +95,7 @@ export class SensorService {
   /**
    * Update sensor metadata, thresholds, status, location
    */
-  static async updateSensor(sensorId, updateData) {
+  static async updateSensor(sensorId, updateData, actor) {
     // Disallow modifying sensorId
     try { validateDetectionConfig(updateData); } catch (error) { throw new ValidationError(error.message); }
     const safeUpdates = editableData(updateData);
@@ -99,17 +103,29 @@ export class SensorService {
     delete safeUpdates._id;
     delete safeUpdates.createdAt;
 
-    const sensor = await Sensor.findOneAndUpdate(
-      { sensorId: sensorId.toUpperCase() },
-      { $set: safeUpdates },
-      { new: true, runValidators: true }
-    ).lean();
-
-    if (!sensor) {
-      throw new NotFoundError(`Sensor with ID "${sensorId}" not found`);
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const prior = await Sensor.findOne({ sensorId: sensorId.toUpperCase() }).select('+thresholdHistory').lean();
+      if (!prior) throw new NotFoundError(`Sensor with ID "${sensorId}" not found`);
+      const next = { ...prior, ...safeUpdates };
+      const changed = configDigest(thresholdConfig(prior)) !== configDigest(thresholdConfig(next));
+      const update = { $set: safeUpdates };
+      if (changed) {
+        if ((prior.thresholdHistory?.length || 0) >= HISTORY_LIMIT) throw new ConflictError('Threshold history capacity reached; archive planning required, history was not truncated');
+        const entry = sealEntry(historyEntry(prior, next, actor));
+        update.$set.configurationRevision = entry.revision;
+        update.$push = { thresholdHistory: entry };
+      }
+      const filter = { _id: prior._id,
+        configurationRevision: prior.configurationRevision ?? { $exists: false },
+        // Fence legacy/direct writers too; metadata edits never overwrite detector state.
+        type: prior.type, unit: prior.unit, thresholds: prior.thresholds ?? null,
+        detectionSettings: prior.detectionSettings ?? null,
+      };
+      const sensor = await Sensor.findOneAndUpdate(filter, update,
+        { new: true, runValidators: true, writeConcern: { w: 'majority' } }).lean();
+      if (sensor) { delete sensor.thresholdHistory; return sensor; }
     }
-
-    return sensor;
+    throw new ConflictError('Concurrent sensor configuration changes; retry');
   }
 
   /**

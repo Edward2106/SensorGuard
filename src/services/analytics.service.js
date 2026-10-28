@@ -1,4 +1,5 @@
 import { BadRequestError, NotFoundError, ServiceUnavailableError } from '../errors/app-errors.js';
+import { thresholdSegments } from './threshold-history.js';
 
 export const GRANULARITIES = Object.freeze({
   '1m': { unit: 'minute', binSize: 1, ms: 60000 },
@@ -78,20 +79,33 @@ export function summarizeSeries(series) {
 export async function getAnalytics(db, query, now = Date.now()) {
   const q = parseAnalyticsQuery(query, now);
   try {
-    const sensor = await db.collection('sensors').findOne({ sensorId: q.sensorId }, { projection: { _id: 0, sensorId: 1, name: 1, type: 1, unit: 1, thresholds: 1 }, maxTimeMS: 1000 });
+    const sensor = await db.collection('sensors').findOne({ sensorId: q.sensorId }, { projection: { _id: 0, sensorId: 1, name: 1, type: 1, unit: 1, thresholds: 1, thresholdHistory: 1, configurationRevision: 1 }, maxTimeMS: 1000 });
     if (!sensor) throw new NotFoundError('Sensor not found');
     const [result] = await db.collection('sensor_readings').aggregate(buildAnalyticsPipeline(q, sensor), { maxTimeMS: ANALYTICS_LIMITS.maxTimeMS, allowDiskUse: false }).toArray();
     if ((result?.input[0]?.count || 0) > ANALYTICS_LIMITS.readings) throw new BadRequestError('More than 100000 readings; shorten the time range');
+    const historicalThresholds = thresholdSegments(sensor, q.from, q.to);
+    // Series is sorted by the pipeline. Sweep the bounded segments once rather than
+    // rescanning every revision for each bucket (1000 buckets ×256 revisions).
+    let historyCursor = 0;
     const series = (result?.series || []).map(row => ({ ...row,
       availableAt: new Date(Math.min(+row.timestamp + q.interval.ms, +q.to)),
       partial: +row.timestamp < +q.from || +row.timestamp + q.interval.ms > +q.to,
+      historicalThreshold: (() => {
+        const start = new Date(Math.max(+row.timestamp, +q.from)), end = new Date(Math.min(+row.timestamp + q.interval.ms, +q.to));
+        while (historyCursor < historicalThresholds.length - 1 && +historicalThresholds[historyCursor].to <= +start) historyCursor++;
+        const { from, to, ...historical } = historicalThresholds[historyCursor];
+        if (+end > +to) return { status: 'MIXED_CONFIGURATIONS' };
+        if (historical.status === 'AVAILABLE' && (historical.config.unit !== sensor.unit || historical.config.type !== sensor.type)) return { status: 'INCOMPATIBLE_TYPE_OR_UNIT', revision: historical.revision };
+        return historical;
+      })(),
     }));
     for (const row of series) for (const key of ['min','max','avg','stdDev','movingAverage','baselineStdDev','ewma','ewmaBaseline','zScore','ewmaScore']) {
       if (row[key] !== null && !Number.isFinite(row[key])) throw new BadRequestError('Numeric range exceeds analytics precision');
     }
     const summary = summarizeSeries(series);
     if (Object.values(summary).some(value => typeof value === 'number' && !Number.isFinite(value))) throw new BadRequestError('Numeric range exceeds analytics precision');
-    return { data: { sensor, series, summary }, meta: {
+    delete sensor.thresholdHistory;
+    return { data: { sensor, series, summary, historicalThresholds }, meta: {
       from: q.from, to: q.to, granularity: q.granularity, window: q.window, alpha: q.alpha, zThreshold: q.zThreshold,
       timezone: 'UTC', intervalMs: q.interval.ms, missingBuckets: q.bucketCount - series.length,
       baseline: 'Previous observed bucket means only; minimum 3; sample standard deviation; EWMA shifted by one bucket',

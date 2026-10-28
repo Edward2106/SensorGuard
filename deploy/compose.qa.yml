@@ -1,0 +1,36 @@
+# Explicit opt-in QA apps. The external QA Mongo/Redis/network are verified separately.
+# Never pass the staging or development env file here.
+name: sensorguard-hardening-qa
+x-qa-app: &qa-app
+  image: sensorguard-hardening:local
+  env_file: ['${SENSORGUARD_QA_ENV_FILE:?Set absolute dedicated QA env file path}']
+  init: true
+  mem_limit: 512m
+  cpus: 1.0
+  restart: 'no'
+  networks: [qa]
+services:
+  api:
+    <<: *qa-app
+    container_name: sensorguard-hardening-api-qa
+    ports: ['127.0.0.1:3003:3000']
+    networks:
+      qa:
+        aliases: [api]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      retries: 10
+  worker:
+    <<: *qa-app
+    container_name: sensorguard-hardening-worker-qa
+    command: [node, src/worker.js]
+    stop_grace_period: 70s
+    healthcheck:
+      test: [CMD, node, scripts/check-worker.js]
+      interval: 5s
+      retries: 10
+networks:
+  qa:
+    name: sensorguard-intelligence-qa
+    external: true

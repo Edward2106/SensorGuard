@@ -4,6 +4,7 @@ export function permitted(req) {
  const url=req.url||'';const path=url.split('?')[0];
  if(url.length>2048||/%|\\|\.\./i.test(path))return false;
  const id='[A-Za-z0-9_.-]+';
+ if(req.method==='GET'&&new RegExp('^/api/v1/sensors/'+id+'/threshold-history$').test(path))return true;
  if(req.method==='GET'&&/^\/api\/v1\/demos(?:\/[a-f0-9-]{36})?$/.test(path))return true;
  if(req.method==='GET'&&/^\/api\/v1\/recovery\/REC-[a-f0-9]{64}$/.test(path))return true;
  if(req.method==='GET')return new RegExp('^/api/v1/(analytics/series|auth/(me|users)|workers|health|ready|readings|sensors(?:/stats|/'+id+'(?:/readings(?:/latest)?)?)?|incidents/'+id+'/analysis|alerts(?:/stats|/'+id+')?)$').test(path);

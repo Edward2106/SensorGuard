@@ -69,7 +69,7 @@ export function Overview() {
           </strong>
         </div>
         <div className="metric">
-          <span>Critical incidents</span>
+          <span>Critical incidents · all statuses</span>
           <strong style={{ color: alerts.data?.data.bySeverity?.critical ? '#b91c1c' : undefined }}>
             {alerts.data?.data.bySeverity?.critical ?? (alerts.data ? 0 : '—')}
           </strong>
@@ -947,8 +947,9 @@ export function Analytics() {
 
       <Panel title="Historical trends limitation">
         <p>
-          Telemetry trends above use bounded MongoDB aggregation. Incident historical trends and historical threshold
-          configuration are not yet available. The distribution charts show current totals, not historical snapshots.
+          Telemetry trends above use bounded MongoDB aggregation. Incident historical trends are not exposed.
+          Threshold history is shown only where retained revisions exist; legacy history remains unavailable.
+          The distribution charts show current totals, not historical snapshots.
         </p>
       </Panel>
     </>
@@ -1030,7 +1031,7 @@ export function Health() {
 
       <Panel title="Datadog US5 observability">
         <p style={{ marginBottom: 16 }}>
-          Cloud logs, custom metrics, and monitors remain partially unverified without a published dashboard URL.
+          Cloud delivery is unverified for this release. Local Agent status and template validation do not prove Cloud delivery.
           The links below direct to the US5 Datadog organization for authenticated operators:
         </p>
         {[

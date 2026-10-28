@@ -1,16 +1,18 @@
 import { lazy, Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, useApi, useDate, params, Panel, State, type Sensor, type List } from './core';
-export type AnalyticsBucket = { timestamp:string;availableAt:string;partial:boolean;min:number;max:number;avg:number;count:number;stdDev:number;movingAverage:number|null;baselineCount:number;baselineStdDev:number|null;ewma:number;ewmaBaseline:number|null;zScore:number|null;ewmaScore:number|null;anomaly:boolean };
+export type AnalyticsBucket = { timestamp:string;availableAt:string;partial:boolean;min:number;max:number;avg:number;count:number;stdDev:number;movingAverage:number|null;baselineCount:number;baselineStdDev:number|null;ewma:number;ewmaBaseline:number|null;zScore:number|null;ewmaScore:number|null;anomaly:boolean;historicalThreshold?:{status:string;revision?:number;config?:{type:string;unit:string;thresholds:Record<string,number>}} };
 export type AnalyticsResult = {data:{sensor:Sensor;series:AnalyticsBucket[];summary:{count:number;min:number|null;max:number|null;avg:number|null;stdDev:number|null;slopePerHour:number|null;trend:string;anomalies:number}};meta:{missingBuckets:number;intervalMs:number;from:string;to:string;baseline:string;scope:string}};
 const Chart = lazy(()=>import('./AnalyticsChart'));
 const display=(n:number|null|undefined)=>n===null||n===undefined?'—':Number(n.toPrecision(6)).toLocaleString();
 export function chartRows(series:AnalyticsBucket[],intervalMs:number) {
-  const rows:{time:number;avg:number|null;movingAverage:number|null;ewmaBaseline:number|null;min?:number;max?:number;anomalyValue:number|null}[]=[];
+  const rows:{time:number;avg:number|null;movingAverage:number|null;ewmaBaseline:number|null;min?:number;max?:number;anomalyValue:number|null;warningHigh?:number|null;warningLow?:number|null;criticalHigh?:number|null;criticalLow?:number|null}[]=[];
   series.slice(0,1000).forEach((b,i)=>{
     const previous=series[i-1];
     if(previous && Date.parse(b.timestamp)-Date.parse(previous.timestamp)>intervalMs) rows.push({time:Date.parse(previous.availableAt)+1,avg:null,movingAverage:null,ewmaBaseline:null,anomalyValue:null});
-    rows.push({time:Date.parse(b.availableAt),avg:b.avg,min:b.min,max:b.max,movingAverage:b.movingAverage,ewmaBaseline:b.ewmaBaseline,anomalyValue:b.anomaly?b.avg:null});
+    const historical=b.historicalThreshold;
+    const bounds=historical?.status==='AVAILABLE'?historical.config?.thresholds:{};
+    rows.push({time:Date.parse(b.availableAt),avg:b.avg,min:b.min,max:b.max,movingAverage:b.movingAverage,ewmaBaseline:b.ewmaBaseline,anomalyValue:b.anomaly?b.avg:null,...Object.fromEntries(['warningHigh','warningLow','criticalHigh','criticalLow'].map(k=>[k,bounds?.[k]??null]))});
   });return rows;
 }
 export default function AnalyticsExplorer({fixedSensor}:{fixedSensor?:string}) {
@@ -48,7 +50,7 @@ export default function AnalyticsExplorer({fixedSensor}:{fixedSensor?:string}) {
     {formError&&<p role="alert">{formError}</p>}
     {!query?<p>Select a sensor and apply a bounded time range.</p>:<State q={q}/>}
     {q.data&&<>
-      <p>{q.data.data.sensor.type} · {q.data.data.sensor.unit} · current sensor thresholds (not historical configuration)</p>
+      <p>{q.data.data.sensor.type} · {q.data.data.sensor.unit} · threshold lines use retained historical revisions only. Unknown history and buckets spanning a configuration change have no threshold line.</p>
       {summary&&<p>Readings: {summary.count} · Min: {display(summary.min)} · Max: {display(summary.max)} · Mean: {display(summary.avg)} · Population σ: {display(summary.stdDev)} · Trend: {summary.trend} ({display(summary.slopePerHour)} {q.data.data.sensor.unit}/hour) · Anomaly buckets: {summary.anomalies}</p>}
       {!series.length?<p>No matching telemetry in this range.</p>:<Suspense fallback={<p role="status">Loading analytics chart…</p>}><Chart result={q.data} format={date}/></Suspense>}
       <p>{q.data.meta.missingBuckets} empty buckets; gaps are not zeros. Baselines use prior observed buckets, excluding the current bucket; scores require 3 prior buckets and nonzero variance. EWMA resets at the selected start. X-axis is the observation cutoff, not the start of its bucket.</p>

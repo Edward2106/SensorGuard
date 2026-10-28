@@ -1,4 +1,4 @@
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Legend } from 'recharts';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { chartRows, type AnalyticsResult } from './AnalyticsExplorer';
 export default function AnalyticsChart({result,format}:{result:AnalyticsResult;format:(value:string)=>string}) {
   const rows=chartRows(result.data.series,result.meta.intervalMs);
@@ -12,7 +12,7 @@ export default function AnalyticsChart({result,format}:{result:AnalyticsResult;f
       <Line dataKey="movingAverage" name="Prior moving average" stroke="#3b82f6" dot={false} connectNulls={false} isAnimationActive={false}/>
       <Line dataKey="ewmaBaseline" name="Prior EWMA" stroke="#a855f7" dot={false} connectNulls={false} isAnimationActive={false}/>
       <Line dataKey="anomalyValue" name="Statistical anomaly" stroke="none" dot={{r:5,fill:'#ef4444',stroke:'#ef4444'}} connectNulls={false} isAnimationActive={false}/>
-      {Object.entries(result.data.sensor.thresholds||{}).filter(([,v])=>Number.isFinite(v)).map(([key,value])=><ReferenceLine key={key} y={value} ifOverflow="extendDomain" stroke={key.startsWith('critical')?'#ef4444':'#f59e0b'} strokeDasharray="4 4" label={key}/>)}
+      {['warningHigh','warningLow','criticalHigh','criticalLow'].map(key=><Line key={key} dataKey={key} name={'Historical '+key} type="stepAfter" stroke={key.startsWith('critical')?'#ef4444':'#f59e0b'} strokeDasharray="4 4" dot={false} connectNulls={false} isAnimationActive={false}/>)}
     </LineChart></ResponsiveContainer>
   </div>;
 }

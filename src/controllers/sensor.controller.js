@@ -1,9 +1,21 @@
 import { SensorService } from '../services/sensor.service.js';
+import { Sensor } from '../models/sensor.model.js';
+import { NotFoundError, BadRequestError } from '../errors/app-errors.js';
 
 export class SensorController {
+  static async thresholdHistory(req, res, next) {
+    try {
+      if (Object.keys(req.query).length) throw new BadRequestError('Threshold history has a fixed maximum of 256 revisions');
+      const sensor = await Sensor.findOne({ sensorId: req.params.sensorId.toUpperCase() }).select('+thresholdHistory').maxTimeMS(1000).lean();
+      if (!sensor) throw new NotFoundError('Sensor not found');
+      res.json({ data: { sensorId: sensor.sensorId, revision: sensor.configurationRevision ?? null,
+        history: sensor.thresholdHistory || [], status: sensor.thresholdHistory?.length ? 'AVAILABLE' : 'HISTORICAL_THRESHOLD_UNAVAILABLE' },
+        meta: { limit: 256, semantics: 'Server-assigned effectiveAt, recordedAt and actor; no legacy backfill; append-only via authorized configuration API' } });
+    } catch (error) { next(error); }
+  }
   static async createSensor(req, res, next) {
     try {
-      const result = await SensorService.createSensor(req.body);
+      const result = await SensorService.createSensor(req.body, req.auth);
       return res.status(201).json({
         success: true,
         data: result,
@@ -45,7 +57,7 @@ export class SensorController {
   static async updateSensor(req, res, next) {
     try {
       const { sensorId } = req.params;
-      const result = await SensorService.updateSensor(sensorId, req.body);
+      const result = await SensorService.updateSensor(sensorId, req.body, req.auth);
       return res.status(200).json({
         success: true,
         data: result,

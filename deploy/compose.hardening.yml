@@ -1,0 +1,6 @@
+# Explicit release image; retains existing project, credentials, network and data volumes.
+services:
+  api:
+    image: sensorguard-hardening:local
+  worker:
+    image: sensorguard-hardening:local

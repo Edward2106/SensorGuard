@@ -2,7 +2,7 @@
 import {MongoClient} from 'mongodb';
 import {mkdir,writeFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
-import {buildAnalyticsPipeline,parseAnalyticsQuery} from '../src/services/analytics.service.js';
+import {buildAnalyticsPipeline,parseAnalyticsQuery,getAnalytics} from '../src/services/analytics.service.js';
 const uri=process.env.PHASE9_TEST_MONGO_URI;
 if(uri!=='mongodb://127.0.0.1:27029')throw Error('PHASE9_TEST_MONGO_URI must name dedicated localhost27029');
 const client=new MongoClient(uri,{serverSelectionTimeoutMS:3000});await client.connect();
@@ -33,6 +33,15 @@ try{
  }
  const stats=values=>{const a=[...values].sort((a,b)=>a-b);return{samplesMs:values,medianMs:(a[9]+a[10])/2,p95Ms:a[18],p99Ms:a[19]};};
  report.writeCost={batchSize:1000,warmupBatches:5,measuredBatches:20,plain:stats(samples.plain),indexed:stats(samples.indexed)};
+ // Feature-cost probe, not an old-code/new-code speedup claim: same indexed readings,
+ // vary only retained history size. Includes Mongo fetch + bounded JS annotation.
+ const apiQuery={sensorId:'BENCH-0',from:new Date(start).toISOString(),to:new Date(start+60000000).toISOString(),granularity:'1m'};
+ await db.collection('sensors').insertOne({sensorId:'BENCH-0',type:'temperature',unit:'C',thresholds:{warningHigh:60}});
+ const measureService=async()=>{for(let i=0;i<5;i++)await getAnalytics(db,apiQuery);const samplesMs=[];let result;for(let i=0;i<50;i++){const at=performance.now();result=await getAnalytics(db,apiQuery);samplesMs.push(performance.now()-at);}assert.equal(result.data.summary.count,60000);const a=[...samplesMs].sort((x,y)=>x-y);return{samplesMs,medianMs:(a[24]+a[25])/2,p95Ms:a[47],p99Ms:a[49],readings:result.data.summary.count,buckets:result.data.series.length};};
+ const noHistory=await measureService();
+ const history=Array.from({length:256},(_,i)=>({revision:i+1,effectiveAt:new Date(start+i*60000000/256),recordedAt:new Date(start+i*60000000/256),config:{type:'temperature',unit:'C',thresholds:{warningHigh:60+i%2},detectionSettings:{}},hash:'synthetic-benchmark-only'}));
+ await db.collection('sensors').updateOne({sensorId:'BENCH-0'},{$set:{configurationRevision:256,thresholdHistory:history}});
+ report.historyAnnotationCost={noHistory,maxHistory:await measureService(),note:'Same indexed read dataset; only sensor history 0 vs256 changed, synthetic benchmark revisions. Not prior-code/new-code comparison or SLA.'};
  report.notes='Same immutable read dataset, five warmups and 50 sequential samples per phase; unhinted optimizer. p95/p99 nearest rank (p99 is max with n=50). Read phases not randomized; cache/order/system noise remain. Write benchmark alternates order, separate fresh collections, 5 warmup +20 measured 1000-row batches each; p99 is maximum. Local default write concern, not production durability/throughput. No cold-cache or production capacity claim.';
  await mkdir('scratch',{recursive:true});const file='scratch/phase9-benchmark-'+Date.now()+'.json';await writeFile(file,JSON.stringify(report,null,2),{flag:'wx'});
  console.log(JSON.stringify({file,database,mongoVersion:report.mongoVersion,totalReadings:report.totalReadings,before:report.before,after:report.after,beforeDocsExamined:report.beforeExplain.executionStats?.totalDocsExamined,afterDocsExamined:report.afterExplain.executionStats?.totalDocsExamined,indexBuildMs:report.indexBuildMs,writeCost:report.writeCost},null,2));

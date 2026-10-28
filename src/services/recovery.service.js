@@ -5,7 +5,7 @@ import{analyzeIncident}from'./incident-analysis.service.js';
 import{thresholdObservation}from'./detection.rules.js';
 const terminal=['VERIFIED','FAILED','TIMED_OUT'];const durable={writeConcern:{w:'majority'}};
 export const recoveryId=incidentId=>{if(typeof incidentId!=='string'||! /^[A-Za-z0-9_.-]{1,160}$/.test(incidentId))throw new BadRequestError('Valid incidentId required');return 'REC-'+createHash('sha256').update(incidentId).digest('hex');};
-const configOf=s=>({type:s.type,unit:s.unit,thresholds:s.thresholds||{},detectionSettings:s.detectionSettings||{},status:s.status});
+const configOf=s=>({type:s.type,unit:s.unit,thresholds:s.thresholds||{},detectionSettings:s.detectionSettings||{},status:s.status,configurationRevision:s.configurationRevision});
 const fingerprint=s=>createHash('sha256').update(JSON.stringify(configOf(s))).digest('hex');
 const audit=(state,actor,at,details={})=>({state,actor:actor.username||actor.userId||'system',at,...details});
 const authorize=actor=>{if(!['ADMIN','OPERATOR'].includes(actor?.role)||!actor.userId)throw new ForbiddenError('Human ADMIN or OPERATOR required');};

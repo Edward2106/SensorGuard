@@ -16,6 +16,7 @@ router.post('/', validateCreateSensor, SensorController.createSensor);
 router.get('/', SensorController.getSensors);
 
 router.get('/:sensorId', SensorController.getSensorById);
+router.get('/:sensorId/threshold-history', SensorController.thresholdHistory);
 router.put('/:sensorId', validateUpdateSensor, SensorController.updateSensor);
 router.patch('/:sensorId', validateUpdateSensor, SensorController.updateSensor);
 router.delete('/:sensorId', SensorController.deleteSensor);

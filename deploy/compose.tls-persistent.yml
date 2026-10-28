@@ -1,0 +1,11 @@
+# Apply only after verified backup, isolated TLS test and staging downtime approval.
+# Populate the new volume with the ORIGINAL /root/.local/share/caddy before starting.
+services:
+  proxy:
+    environment:
+      XDG_DATA_HOME: /data
+      XDG_CONFIG_HOME: /config
+    volumes:
+      - caddy_persistent_data:/data
+volumes:
+  caddy_persistent_data: {}

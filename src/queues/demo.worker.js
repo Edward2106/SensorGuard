@@ -1,3 +1,4 @@
+import{metrics}from'../observability/metrics.js';
 import{Queue,Worker}from'bullmq';import mongoose from'mongoose';import{randomUUID}from'node:crypto';import{setTimeout as delay}from'node:timers/promises';
 import{env}from'../config/env.js';import{redisConnectionOptions}from'../config/redis.js';import{SensorService}from'../services/sensor.service.js';import{createRecoveryService}from'../services/recovery.service.js';import{analyzeIncident}from'../services/incident-analysis.service.js';import{BadRequestError,ConflictError,NotFoundError,ForbiddenError}from'../errors/app-errors.js';import{logger}from'../observability/logger.js';
 export const DEMO_SCENARIOS=['SERVER_OVERHEATING','PUMP_VIBRATION','CONNECTION_LOSS'];
@@ -7,13 +8,13 @@ export async function startDemo(db,scenario,actor){
  if(actor?.role!=='ADMIN'||!actor.userId)throw new ForbiddenError('ADMIN required to allocate isolated demo sensors');if(!DEMO_SCENARIOS.includes(scenario))throw new BadRequestError('Unknown demo scenario');
  const runs=db.collection('demo_runs'),control=db.collection('demo_control'),now=new Date(),id=randomUUID();
  try{await control.updateOne({_id:'global',expiresAt:{$lte:now}},{$set:{owner:id,expiresAt:new Date(+now+300000)}},{upsert:true,...write});}catch(e){if(e.code===11000)throw new ConflictError('Another bounded demo holds the global lease');throw e;}
- const run={_id:id,scenario,state:'QUEUED',createdAt:now,deadline:new Date(+now+300000),createdBy:{userId:actor.userId,username:actor.username,role:actor.role},sensorId:'DEMO-'+id.toUpperCase(),simulation:true,timeline:[{state:'QUEUED',at:now}]};await runs.insertOne(run,write);
+ const run={_id:id,scenario,state:'QUEUED',createdAt:now,deadline:new Date(+now+300000),createdBy:{userId:actor.userId,username:actor.username,role:actor.role},sensorId:'DEMO-'+id.toUpperCase(),simulation:true,timeline:[{state:'QUEUED',at:now}]};await runs.insertOne(run,write);metrics.emit('demo.created');
  try{await getQueue().add('scenario',{runId:id},{jobId:id,attempts:1,removeOnComplete:100,removeOnFail:100});}catch{await runs.updateOne({_id:id},{$set:{state:'FAILED',error:'Demo queue unavailable'}},write);await control.updateOne({_id:'global',owner:id},{$set:{expiresAt:new Date()}},write);throw new ConflictError('Demo queue unavailable; no telemetry sent');}return run;
 }
 export async function readDemo(db,id){if(typeof id!=='string'||! /^[a-f0-9-]{36}$/.test(id))throw new BadRequestError('Invalid demo ID');const r=await db.collection('demo_runs').findOne({_id:id},{maxTimeMS:1000,projection:{createdBy:0}});if(!r)throw new NotFoundError('Demo not found');return r;}
 export function createDemoProcessor(db){return async job=>{
  const runs=db.collection('demo_runs'),id=job.data.runId;let run=await runs.findOne({_id:id});if(!run||terminal.includes(run.state))return;
- const mark=async(state,extra={})=>{await runs.updateOne({_id:id},{$set:{state,...(terminal.includes(state)?{finishedAt:new Date()}:{}),...extra},$push:{timeline:{$each:[{state,at:new Date()}],$slice:-60}}},write);run=await runs.findOne({_id:id});};
+ const mark=async(state,extra={})=>{const changed=await runs.updateOne({_id:id,state:{$nin:terminal}},{$set:{state,...(terminal.includes(state)?{finishedAt:new Date()}:{}),...extra},$push:{timeline:{$each:[{state,at:new Date()}],$slice:-60}}},write);if(changed.modifiedCount&&terminal.includes(state))metrics.emit('demo.'+state.toLowerCase());run=await runs.findOne({_id:id});};
  const guard=async()=>{if(stopping)throw new Error('Demo cancelled safely by worker shutdown');const lock=await db.collection('demo_control').findOne({_id:'global',owner:id,expiresAt:{$gt:new Date()}},{maxTimeMS:1000});if(!lock||Date.now()>+run.deadline)throw new Error('Demo lease expired');};
  const wait=async check=>{while(Date.now()<+run.deadline){await guard();const r=await check();if(r)return r;await delay(1000);}throw new Error('Demo deadline exceeded');};
  const vib=run.scenario==='PUMP_VIBRATION',offline=run.scenario==='CONNECTION_LOSS',normal=vib?2:25;
@@ -25,10 +26,10 @@ export function createDemoProcessor(db){return async job=>{
  }
  try{
   if(!validOrigin)throw new Error('Demo requires private API origin on port3000');
-  await guard();let sensor=await db.collection('sensors').findOne({sensorId:run.sensorId});if(!sensor)await SensorService.createSensor({sensorId:run.sensorId,name:'SIMULATED '+run.scenario,type:vib?'vibration':'temperature',unit:vib?'mm/s':'C',thresholds:{warningHigh:vib?5:60,criticalHigh:vib?10:90},detectionSettings:{hysteresis:vib?1:3,recoveryReadings:3,offlineAfterSeconds:offline?15:3600},metadata:{demoRunId:id,simulated:true}});else if(sensor.metadata?.demoRunId!==id)throw new Error('Demo sensor ownership conflict');
+  await guard();let sensor=await db.collection('sensors').findOne({sensorId:run.sensorId});if(!sensor)await SensorService.createSensor({sensorId:run.sensorId,name:'SIMULATED '+run.scenario,type:vib?'vibration':'temperature',unit:vib?'mm/s':'C',thresholds:{warningHigh:vib?5:60,criticalHigh:vib?10:90},detectionSettings:{hysteresis:vib?1:3,recoveryReadings:3,offlineAfterSeconds:offline?15:3600},metadata:{demoRunId:id,simulated:true}},run.createdBy);else if(sensor.metadata?.demoRunId!==id)throw new Error('Demo sensor ownership conflict');
   await mark('BASELINE');const base=+run.createdAt;
   if(offline)await publish('baseline',normal,base);else for(let i=0;i<5;i++)await publish('baseline-'+i,normal+[0,1,-1,0,1][i],base-(5-i)*60000);
-  if(!offline){await publish('anomaly',vib?20:95,base);await mark('ANOMALY_SENT');}else await mark('AWAITING_DISCONNECTION');
+  if(!offline){if(!run.anomalyAt){await runs.updateOne({_id:id,anomalyAt:{$exists:false}},{$set:{anomalyAt:new Date()}},write);run=await runs.findOne({_id:id});}await publish('anomaly',vib?20:95,run.anomalyAt);await mark('ANOMALY_SENT');}else await mark('AWAITING_DISCONNECTION');
   const incident=await wait(()=>db.collection('incidents').findOne({sensorId:run.sensorId,status:{$in:['open','acknowledged']}}));await mark('INCIDENT_DETECTED',{incidentId:incident.alertId});
   const analysis=await analyzeIncident(db,incident.alertId);await mark('ANALYZED',{patterns:analysis.data.patterns.map(p=>p.pattern)});const recovery=createRecoveryService(db);const workflow=await recovery.propose(incident.alertId,run.createdBy);await mark('AWAITING_APPROVAL',{workflowId:workflow._id});
   const approved=await wait(async()=>{const w=await recovery.get(workflow._id);return w.state==='VERIFYING_RECOVERY'&&w;});

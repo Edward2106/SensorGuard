@@ -7,6 +7,8 @@ import {
 
 const SensorSchema = new mongoose.Schema(
   {
+    configurationRevision: { type: Number },
+    thresholdHistory: { type: [mongoose.Schema.Types.Mixed], default: undefined, select: false },
     lastSeen: { type: Date },
     lastSeenEventId: { type: String },
     healthStatus: { type: String, enum: ['unknown', 'online', 'offline'], default: 'unknown' },

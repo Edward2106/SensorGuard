@@ -130,6 +130,42 @@
           }
         ]
       }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Demo workflow outcomes (separate opt-in)",
+        "requests": [
+          {
+            "q": "sum:sensorguard.demo.created{env:development}.as_count()",
+            "display_type": "bars"
+          },
+          {
+            "q": "sum:sensorguard.demo.verified{env:development}.as_count()",
+            "display_type": "bars"
+          },
+          {
+            "q": "sum:sensorguard.demo.failed{env:development}.as_count()",
+            "display_type": "bars"
+          },
+          {
+            "q": "sum:sensorguard.demo.timed_out{env:development}.as_count()",
+            "display_type": "bars"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Successful worker heartbeat writes (separate opt-in)",
+        "requests": [
+          {
+            "q": "sum:sensorguard.worker.heartbeat{env:development}.as_rate()",
+            "display_type": "line"
+          }
+        ]
+      }
     }
   ]
 }

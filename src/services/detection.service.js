@@ -1,6 +1,7 @@
 import { logger as obsLogger } from '../observability/logger.js';
 import { createHash } from 'node:crypto';
 import mongoose from 'mongoose';
+import { thresholdAt } from './threshold-history.js';
 import { env } from '../config/env.js';
 import { DETECTED_TYPES, thresholdObservation, validateDetectionConfig, DetectionConfigError } from './detection.rules.js';
 
@@ -26,7 +27,7 @@ export function createDetector(db = mongoose.connection.db, { clock = () => new 
     const state = sensor.detection;
     if (!state?.hasPending) return;
     for (const effect of state.pending) {
-      const { incident, action, eventId, at, observedAt, severity, value, threshold, reason } = effect;
+      const { incident, action, eventId, at, observedAt, severity, value, threshold, reason, thresholdSnapshot } = effect;
       const incidentId = new mongoose.Types.ObjectId(createHash('sha256').update(incident.alertId).digest('hex').slice(0, 24));
       if (action === 'open') {
         // _id is deterministic too: replay after an uncertain insert is safe even without autoIndex.
@@ -35,7 +36,7 @@ export function createDetector(db = mongoose.connection.db, { clock = () => new 
             _id: incidentId, ...incident, status: 'open', active: true, managedBy: 'detector',
             eventId, lastEventId: eventId, observedAt, severity, readingValue: value, threshold,
             createdAt: at, updatedAt: at, detectionRevision: state.revision,
-            history: [{ action: 'opened', at, observedAt, eventId, severity, value, threshold }],
+            history: [{ action: 'opened', at, observedAt, eventId, severity, value, threshold, thresholdSnapshot }],
           } }, { upsert: true, ...durable });
         } catch (error) { if (error.code !== 11000) throw error;
           if (!await incidents.findOne({ _id: incidentId, alertId: incident.alertId })) throw error;
@@ -69,6 +70,7 @@ export function createDetector(db = mongoose.connection.db, { clock = () => new 
         _id: sensor._id, 'detection.revision': sensor.detection ? prior.revision : { $exists: false },
         lastSeen: sensor.lastSeen ?? null, status: sensor.status ?? null,
         type: sensor.type ?? null,
+        configurationRevision: sensor.configurationRevision ?? { $exists: false },
         thresholds: sensor.thresholds ?? null, detectionSettings: sensor.detectionSettings ?? null,
       };
       const set = { detection: next };
@@ -86,7 +88,8 @@ export function createDetector(db = mongoose.connection.db, { clock = () => new 
       const severity = current?.severity === 'critical' ? 'critical' : observation.severity;
       const incident = current?.incident || { alertId: idFor(sensor.sensorId, key, eventId), sensorId: sensor.sensorId, conditionKey: key, type: key, title: `${sensor.sensorId}: ${key}` };
       state.conditions[key] = { incident, severity, goodReadings: 0 };
-      state.pending.push({ incident, action: !current ? 'open' : severity !== current.severity ? 'escalate' : 'update', severity, eventId, at, observedAt, value, threshold: observation.threshold });
+      state.pending.push({ incident, action: !current ? 'open' : severity !== current.severity ? 'escalate' : 'update', severity, eventId, at, observedAt, value, threshold: observation.threshold,
+        thresholdSnapshot: thresholdAt(sensor, observedAt) });
     } else if (current) {
       current.goodReadings = observation.recovered ? (current.goodReadings || 0) + 1 : 0;
       if (current.goodReadings >= required) {
@@ -121,13 +124,16 @@ export function createDetector(db = mongoose.connection.db, { clock = () => new 
       if (timestamp > new Date(+now + env.TELEMETRY_MAX_FUTURE_SECONDS * 1000)) return;
       await transition(reading.metadata.sensorId, (sensor, state) => {
         healthDecision(sensor, state, now, reading.eventId);
+        const historical = thresholdAt(sensor, timestamp);
+        // Legacy monitoring remains compatible but is explicitly unavailable as historical evidence.
+        const eventSensor = historical.status === 'AVAILABLE' ? { ...sensor, ...historical.config } : sensor;
         // Live state is monotonic. Equal timestamp events use the first accepted observation.
-        if (enabled(sensor) && DETECTED_TYPES.includes(sensor.type) && reading.metadata.type === sensor.type &&
+        if (enabled(sensor) && DETECTED_TYPES.includes(eventSensor.type) && reading.metadata.type === eventSensor.type && (!reading.unit || reading.unit === eventSensor.unit) &&
             (!state.readingAt || timestamp > state.readingAt) && (!sensor.lastSeen || timestamp >= sensor.lastSeen)) {
-          validateDetectionConfig(sensor);
+          validateDetectionConfig(eventSensor);
           for (const direction of ['high', 'low']) {
-            const observation = thresholdObservation(reading.value, sensor.thresholds, direction, sensor.detectionSettings);
-            if (observation.configured) applyCondition(sensor, state, `${sensor.type}_${direction}`, observation, reading.eventId, timestamp, reading.value, sensor.detectionSettings?.recoveryReadings ?? env.DETECTION_RECOVERY_READINGS);
+            const observation = thresholdObservation(reading.value, eventSensor.thresholds, direction, eventSensor.detectionSettings);
+            if (observation.configured) applyCondition(eventSensor, state, `${eventSensor.type}_${direction}`, observation, reading.eventId, timestamp, reading.value, eventSensor.detectionSettings?.recoveryReadings ?? env.DETECTION_RECOVERY_READINGS);
             else if (state.conditions[`${sensor.type}_${direction}`]) applyCondition(sensor, state, `${sensor.type}_${direction}`, { recovered: true, reason: 'rule_disabled' }, reading.eventId, timestamp, reading.value);
           }
           state.readingAt = timestamp;

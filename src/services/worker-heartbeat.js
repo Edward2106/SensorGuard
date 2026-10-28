@@ -9,14 +9,14 @@ export function heartbeatClient() {
   client.on('error', () => {});
   return client;
 }
-export function startHeartbeat(worker, { client = heartbeatClient(), now = () => Date.now(), id = randomUUID() } = {}) {
+export function startHeartbeat(worker, { client = heartbeatClient(), now = () => Date.now(), id = randomUUID(), onHeartbeat = () => {} } = {}) {
   const key = `${registry}:${id}`;
   let closed = false, pending;
   const beat = () => {
     if (closed || pending) return;
     const timestamp = now();
     const status = worker.isRunning() && !worker.isPaused() && mongoose.connection.readyState === 1 ? 'online' : 'degraded';
-    pending = client.multi().set(key, JSON.stringify({ id, status, timestamp }), 'EX', 30).zadd(registry, timestamp, id).zremrangebyscore(registry, '-inf', timestamp - 3600000).exec().catch(() => {}).finally(() => { pending = undefined; });
+    pending = client.multi().set(key, JSON.stringify({ id, status, timestamp }), 'EX', 30).zadd(registry, timestamp, id).zremrangebyscore(registry, '-inf', timestamp - 3600000).exec().then(result => { if (result?.every(([error]) => !error)) onHeartbeat(); }).catch(() => {}).finally(() => { pending = undefined; });
   };
   client.on('ready', beat);beat();const timer = setInterval(beat, 10000);timer.unref();
   return { id, async close() { closed = true;clearInterval(timer);await pending;try {await client.set(key, JSON.stringify({ id, status:'stopping', timestamp:now() }), 'EX', 30);}catch{}client.disconnect(); } };
