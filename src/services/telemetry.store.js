@@ -1,6 +1,7 @@
 import { logger as obsLogger } from '../observability/logger.js';
 import mongoose from 'mongoose';
 import { createHash } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { UnrecoverableError } from 'bullmq';
 import { TIMESERIES_CONFIG } from '../config/constants.js';
 import { env } from '../config/env.js';
@@ -15,8 +16,16 @@ export async function ensureTelemetryStorage(db = mongoose.connection.db) {
     try {
       await db.createCollection(c.collectionName, { timeseries: { timeField: c.timeField, metaField: c.metaField, granularity: c.granularity }, expireAfterSeconds: c.expireAfterSeconds });
     } catch (error) { if (error.code !== 48) throw error; }
-    existing = await db.listCollections({ name: c.collectionName }).next();
+    // NamespaceExists can precede visibility of the time-series view when another
+    // process (including Mongoose auto-creation) is still creating its namespace.
+    // Re-read metadata for a bounded interval; never infer schema from code 48.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      existing = await db.listCollections({ name: c.collectionName }).next();
+      if (existing) break;
+      if (attempt < 19) await delay(100);
+    }
   }
+  if (!existing) throw new Error('sensor_readings metadata unavailable after initialization; retry startup after concurrent collection creation completes');
   if (existing.type !== 'timeseries' || existing.options?.timeseries?.timeField !== c.timeField || existing.options?.timeseries?.metaField !== c.metaField) throw new Error('Incompatible sensor_readings collection; explicit migration required');
   await db.collection('telemetry_events').createIndex({ state: 1, updatedAt: 1 });
   await db.collection(c.collectionName).createIndex({ 'metadata.sensorId': 1, eventId: 1 });

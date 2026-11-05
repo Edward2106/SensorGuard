@@ -19,6 +19,7 @@ The previous report's 608 traces, 1,648 spans and 73 backend passes cannot be in
 
 | Finding | Impact | Change / evidence |
 |---|---|---|
+| Concurrent startup metadata was absent when dereferenced | High: worker exited with TypeError at telemetry.store.js:20 during real CI startup | Bounded metadata rereads after collection creation, fail closed on timeout/incompatible schema; regression includes delayed metadata and real concurrent MongoDB initialization |
 | Metrics transport hardcoded `127.0.0.1` | Medium: a separate Docker Agent could not receive metrics even with `DD_AGENT_HOST` configured | Honor `DD_AGENT_HOST`, retain loopback default; real UDP reception tested on `127.0.0.2` |
 | Observed launcher did not forward termination signals | Medium: parent termination could interrupt observed API/worker cleanup in container deployments | Forward SIGINT/SIGTERM, await child exit and preserve failures; test includes a real child completing cleanup after SIGTERM |
 | Remote configuration was not explicitly disabled in observed startup | Configuration gap against the requested minimal QA feature set | Set `DD_REMOTE_CONFIG_ENABLED=false` alongside existing disabled optional features |
@@ -51,10 +52,10 @@ API/worker fault injection, Redis/Mongo disconnects, queue retries/duplicates, c
 
 - Files deleted: none; no file was proved obsolete enough to remove safely.
 - Refactored: `scripts/start-observed.js`.
-- Corrected: `src/observability/metrics.js`, `scripts/secret-check.js`.
+- Corrected: `src/observability/metrics.js`, `scripts/secret-check.js`, `src/services/telemetry.store.js`.
 - Improved diagnostics: `src/worker.js` retains up to four redacted startup stack frames without the exception message.
 - Rewritten: `README.md`; removed historical deployment counts, repeated phase narratives and fixed historical PASS totals from the entry document.
-- Added: two regression test files and this report.
+- Added: four regression test files and this report.
 - Dependencies removed: none.
 - Retained: source, Compose overlays, backup/restore tools, tests and operational docs. Their purpose or references did not justify removal. Generated dependencies/build output remain ignored.
 - Windows untracked files and prior test evidence were unavailable and were not deleted.
@@ -63,7 +64,7 @@ API/worker fault injection, Redis/Mongo disconnects, queue retries/duplicates, c
 
 | Check | Result |
 |---|---|
-| Backend `NODE_ENV=test npm test` | 67 total; 61 passed; 0 failed; 6 skipped; 0 cancelled |
+| Backend `NODE_ENV=test npm test` | 71 total; 64 passed; 0 failed; 7 skipped; 0 cancelled |
 | Frontend gateway boundary tests | 5 passed; 0 failed; 0 skipped |
 | Frontend React tests | 25 passed; 0 failed; 0 skipped |
 | Frontend typecheck | PASS |
@@ -76,7 +77,7 @@ API/worker fault injection, Redis/Mongo disconnects, queue retries/duplicates, c
 | Frontend dependency audit | 0 vulnerabilities reported |
 | Docker Compose runtime validation, healthchecks, actual Agent and E2E | BLOCKED locally |
 
-Six skipped tests require the dedicated real MongoDB fixture: analytics, incident analysis, recovery, threshold history, demo safety and demo lease. Skipped tests are not passes. GitHub CI results must be read for the exact branch head; historical main success is not validation of this change.
+Seven skipped tests require the dedicated real MongoDB fixture: analytics, incident analysis, recovery, threshold history, demo safety, demo lease and concurrent telemetry-storage startup. Skipped tests are not passes. GitHub CI results must be read for the exact branch head; historical main success is not validation of this change.
 
 ### GitHub CI evidence
 
@@ -88,7 +89,7 @@ Six skipped tests require the dedicated real MongoDB fixture: analytics, inciden
 - Actual API/BullMQ/worker/MongoDB E2E verified Server Overheating twice, Pump Vibration and Connection Loss, each with verified recovery; final report `success: true`.
 - Observability template lint, secret scan and dependency audit at the workflow's high-severity threshold succeeded. The two moderate development-tool entries remain.
 
-An earlier pull-request run, [42085005133](https://github.com/Edward2106/SensorGuard/actions/runs/42085005133), failed when the worker exited with a startup TypeError after MongoDB connection. The simultaneous push run on the **same** initial SHA passed. No error message/stack was present in the original worker log. Bounded redacted stack frames were added for future diagnosis; the subsequent run above passed. **The intermittent startup failure's root cause is unresolved.** A later green run does not prove that defect fixed; keep it as an open release gate and collect a stack if reproduced.
+An earlier pull-request run, [42085005133](https://github.com/Edward2106/SensorGuard/actions/runs/42085005133), failed when the worker exited with a startup TypeError after MongoDB connection. The simultaneous push run on the **same** initial SHA passed. No error message/stack was present in the original worker log. Bounded redacted stack frames were added. A subsequent run reproduced the TypeError at `ensureTelemetryStorage`, `src/services/telemetry.store.js:20`, where `existing.type` was read while collection metadata was null. The fix rereads metadata for a bounded interval after creation/NamespaceExists and still rejects absent or incompatible metadata before creating indexes. Regression tests cover delayed metadata, timeout, incompatible schema, non-conflict database errors and eight concurrent initializers against a fresh real MongoDB QA database. The successful run linked above predates this storage fix; final-head CI results are delivered in the PR checks.
 
 These CI services are disposable runner fixtures, not the owner's staging or current Windows QA stack. They establish the checks above, not real Agent/Cloud ingestion, HA, or staging preservation.
 
@@ -119,7 +120,7 @@ Changes are prepared on `fix/observability-release-audit`, based on the main SHA
 5. Verify the intended US5 organization and sufficient free quota or an explicit budget before any Cloud submission.
 6. Verify Cloud APM, logs, custom metrics, dashboards and monitors individually with service/environment/time-window evidence.
 7. Resolve or explicitly track the development-only dependency advisory and log retention limitation.
-8. Investigate the intermittent worker startup failure; do not treat the successful subsequent run as a proven fix.
+8. Verify the storage startup fix in final-head CI, including the concurrent MongoDB initializer test and real worker E2E; retain bounded diagnostics for future startup failures.
 9. Only claim MongoDB/Redis/API HA after a corresponding topology and failover test exist. Review backup restoration and remaining security controls before a production release.
 
 Production readiness is not established by the passing local tests or by the draft PR.
