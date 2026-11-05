@@ -52,6 +52,7 @@ API/worker fault injection, Redis/Mongo disconnects, queue retries/duplicates, c
 - Files deleted: none; no file was proved obsolete enough to remove safely.
 - Refactored: `scripts/start-observed.js`.
 - Corrected: `src/observability/metrics.js`, `scripts/secret-check.js`.
+- Improved diagnostics: `src/worker.js` retains up to four redacted startup stack frames without the exception message.
 - Rewritten: `README.md`; removed historical deployment counts, repeated phase narratives and fixed historical PASS totals from the entry document.
 - Added: two regression test files and this report.
 - Dependencies removed: none.
@@ -76,6 +77,20 @@ API/worker fault injection, Redis/Mongo disconnects, queue retries/duplicates, c
 | Docker Compose runtime validation, healthchecks, actual Agent and E2E | BLOCKED locally |
 
 Six skipped tests require the dedicated real MongoDB fixture: analytics, incident analysis, recovery, threshold history, demo safety and demo lease. Skipped tests are not passes. GitHub CI results must be read for the exact branch head; historical main success is not validation of this change.
+
+### GitHub CI evidence
+
+[Verify run 42085449943](https://github.com/Edward2106/SensorGuard/actions/runs/42085449943), commit `3d5e1ca2f7bae01f5d6de443540a5ecb6f231fc6`, succeeded on Ubuntu / Node.js 22:
+
+- Backend with real MongoDB: **76 passed, 0 failed, 0 skipped**.
+- Frontend: **5 boundary + 25 React tests passed**; typecheck and build succeeded.
+- Docker image build and Compose configuration validation succeeded.
+- Actual API/BullMQ/worker/MongoDB E2E verified Server Overheating twice, Pump Vibration and Connection Loss, each with verified recovery; final report `success: true`.
+- Observability template lint, secret scan and dependency audit at the workflow's high-severity threshold succeeded. The two moderate development-tool entries remain.
+
+An earlier pull-request run, [42085005133](https://github.com/Edward2106/SensorGuard/actions/runs/42085005133), failed when the worker exited with a startup TypeError after MongoDB connection. The simultaneous push run on the **same** initial SHA passed. No error message/stack was present in the original worker log. Bounded redacted stack frames were added for future diagnosis; the subsequent run above passed. **The intermittent startup failure's root cause is unresolved.** A later green run does not prove that defect fixed; keep it as an open release gate and collect a stack if reproduced.
+
+These CI services are disposable runner fixtures, not the owner's staging or current Windows QA stack. They establish the checks above, not real Agent/Cloud ingestion, HA, or staging preservation.
 
 ## G. Security
 
@@ -104,6 +119,7 @@ Changes are prepared on `fix/observability-release-audit`, based on the main SHA
 5. Verify the intended US5 organization and sufficient free quota or an explicit budget before any Cloud submission.
 6. Verify Cloud APM, logs, custom metrics, dashboards and monitors individually with service/environment/time-window evidence.
 7. Resolve or explicitly track the development-only dependency advisory and log retention limitation.
-8. Only claim MongoDB/Redis/API HA after a corresponding topology and failover test exist. Review backup restoration and remaining security controls before a production release.
+8. Investigate the intermittent worker startup failure; do not treat the successful subsequent run as a proven fix.
+9. Only claim MongoDB/Redis/API HA after a corresponding topology and failover test exist. Review backup restoration and remaining security controls before a production release.
 
 Production readiness is not established by the passing local tests or by the draft PR.
