@@ -76,7 +76,8 @@ export async function startWorker() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   startWorker().catch(async (error) => {
-    obsLogger.error('[Worker] Startup failed', { name: error.name, code: error.code });
+    obsLogger.error('[Worker] Startup failed', { name: error.name, code: error.code,
+      error: error.stack?.split('\n').slice(1, 5).join(' ') });
     closeReadingCache();
     await disconnectMongo();
     process.exitCode = 1;
