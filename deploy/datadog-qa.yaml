@@ -1,0 +1,27 @@
+# Invalid placeholder only. All Agent output targets an offline, internal sink.
+api_key: offline-qa-placeholder-not-valid
+site: us5.datadoghq.com
+hostname: sensorguard-offline-qa
+env: qa
+dd_url: http://intake:8080
+skip_ssl_validation: false
+remote_configuration:
+  enabled: false
+apm_config:
+  enabled: true
+  apm_non_local_traffic: true
+  apm_dd_url: http://intake:8080
+  telemetry:
+    enabled: false
+process_config:
+  process_collection:
+    enabled: false
+logs_enabled: true
+logs_config:
+  logs_dd_url: intake:8080
+  logs_no_ssl: true
+  use_http: true
+  batch_wait: 1
+dogstatsd_non_local_traffic: true
+use_dogstatsd: true
+dogstatsd_metrics_stats_enable: true

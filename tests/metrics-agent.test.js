@@ -22,3 +22,13 @@ test('configured Agent host receives real UDP metrics outside default loopback',
     else process.env.DD_AGENT_HOST = previous;
   }
 });
+
+test('DogStatsD host can differ from the APM proxy without changing default fallback', () => {
+  const previous = process.env.DD_DOGSTATSD_HOST;
+  const agent = process.env.DD_AGENT_HOST;
+  process.env.DD_DOGSTATSD_HOST = 'metrics-agent'; process.env.DD_AGENT_HOST = 'trace-proxy';
+  let sentHost;
+  const metrics = createMetrics({enabled:true, socketFactory:()=>({on(){},unref(){},close(){},send(_p,_port,host,cb){sentHost=host;cb();}})});
+  try { metrics.emit('api.requests'); assert.equal(sentHost,'metrics-agent'); }
+  finally { metrics.close(); if(previous===undefined)delete process.env.DD_DOGSTATSD_HOST;else process.env.DD_DOGSTATSD_HOST=previous; if(agent===undefined)delete process.env.DD_AGENT_HOST;else process.env.DD_AGENT_HOST=agent; }
+});

@@ -135,6 +135,8 @@ JSON logs có rotation theo dung lượng và trace/span correlation khi có act
 
 Offline lint hoặc UDP receiver chỉ xác nhận cấu hình/transport cục bộ. Agent ingestion, Cloud APM, Logs, Metrics, dashboard, monitors và trace xuyên queue phải được xác minh riêng. Kiểm tra organization, quota và chi phí trước khi gửi Cloud. Xem [trạng thái audit](docs/release-audit-2026-11-06.md).
 
+[APM QA offline với Agent thật](docs/apm-qa.md) dùng Docker network riêng, không egress và không mở port host. Có kiểm thử REST/BullMQ/worker/incident/recovery, thu log và metrics cục bộ. Đây không phải bằng chứng Cloud ingestion; quota và chi phí Cloud vẫn phải được xác minh riêng.
+
 ## Bảo mật
 
 Session lưu trong MongoDB; mật khẩu băm scrypt; cookie HttpOnly và SameSite Strict, Secure trong production. API kiểm tra Origin, CSRF headers, RBAC và giới hạn request. Giữ MongoDB/Redis trên mạng private, giới hạn cổng host ở loopback và dùng HTTPS cho production.

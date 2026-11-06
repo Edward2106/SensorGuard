@@ -5,6 +5,7 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
+    "verify:dev-watch": "node scripts/verify-dev-watch.js",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
     "frontend:typecheck": "npm --prefix frontend run typecheck",
@@ -50,5 +51,10 @@
     "nodejs"
   ],
   "author": "SensorGuard Engineering Team",
-  "license": "ISC"
+  "license": "ISC",
+  "overrides": {
+    "nodemon": {
+      "minimatch": "^11.0.1"
+    }
+  }
 }

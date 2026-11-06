@@ -1,0 +1,74 @@
+# Add only to compose.apm-qa.yml. NO egress network; NO Cloud credentials.
+services:
+  receiver:
+    environment:
+      APM_QA_FORWARD_TO_AGENT: 'true'
+  api:
+    environment:
+      DD_AGENT_HOST: receiver
+      DD_DOGSTATSD_HOST: agent
+      DD_SITE: us5.datadoghq.com
+      SENSORGUARD_METRICS_ENABLED: 'true'
+      SENSORGUARD_RECOVERY_METRICS_ENABLED: 'true'
+      SENSORGUARD_WORKFLOW_METRICS_ENABLED: 'true'
+      SENSORGUARD_LOG_DIR: /qa-logs
+      DEVICE_API_KEY: offline-device-qa-only-distinct-key-0000
+      DEMO_API_ORIGIN: http://api:3000
+    volumes: [qa_logs:/qa-logs]
+    depends_on:
+      agent: {condition: service_started}
+      log-init: {condition: service_completed_successfully}
+  worker:
+    environment:
+      DD_AGENT_HOST: receiver
+      DD_DOGSTATSD_HOST: agent
+      DD_SITE: us5.datadoghq.com
+      SENSORGUARD_METRICS_ENABLED: 'true'
+      SENSORGUARD_RECOVERY_METRICS_ENABLED: 'true'
+      SENSORGUARD_WORKFLOW_METRICS_ENABLED: 'true'
+      SENSORGUARD_GAUGES_ENABLED: 'true'
+      SENSORGUARD_LOG_DIR: /qa-logs
+      DEVICE_API_KEY: offline-device-qa-only-distinct-key-0000
+      DEMO_API_ORIGIN: http://api:3000
+    volumes: [qa_logs:/qa-logs]
+    depends_on:
+      agent: {condition: service_started}
+      log-init: {condition: service_completed_successfully}
+  log-init:
+    image: sensorguard-apm-qa:local
+    user: '0:0'
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    volumes: [qa_logs:/qa-logs]
+    command: [node, -e, "require('fs').chownSync('/qa-logs',1000,1000)"]
+  agent:
+    image: gcr.io/datadoghq/agent@sha256:c547a491ca90f0f0bed864a99c87d12da76ff80e08c2b25706d6c619609da69d
+    networks: [private]
+    mem_limit: 512m
+    cpus: 1.0
+    cap_drop: [ALL]
+    # s6 init needs file ownership and service-user transitions, never SYS_ADMIN.
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, KILL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      DD_HOSTNAME: sensorguard-offline-qa
+      DD_API_KEY: offline-qa-placeholder-not-valid
+      DD_REMOTE_CONFIGURATION_ENABLED: 'false'
+      DD_PROCESS_AGENT_ENABLED: 'false'
+      DD_SYSTEM_PROBE_ENABLED: 'false'
+    volumes:
+      - ./datadog-qa.yaml:/etc/datadog-agent/datadog.yaml:ro
+      - ./datadog-qa-logs.yaml:/etc/datadog-agent/conf.d/sensorguard.d/conf.yaml:ro
+      - qa_logs:/qa-logs:ro
+    depends_on: [intake]
+  intake:
+    image: sensorguard-apm-qa:local
+    command: [node, scripts/apm-qa-intake.js]
+    networks: [private]
+    volumes: ['../scripts:/app/scripts:ro']
+    read_only: true
+    mem_limit: 128m
+    cap_drop: [ALL]
+volumes:
+  qa_logs: {}

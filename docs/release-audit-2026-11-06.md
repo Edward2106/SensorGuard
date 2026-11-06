@@ -1,5 +1,9 @@
 # SensorGuard release audit — 06/11/2026
 
+> Historical Linux audit retained below. The Windows PR #1 reconciliation in
+> [the companion report](release-windows-pr1.md) supersedes its infrastructure
+> BLOCKED statuses where explicitly verified. Cloud sending remains blocked.
+
 ## A. Summary and scope
 
 This audit starts from `Edward2106/SensorGuard` main commit `46680a2ab22eada52f2fd5b65d372f3ac175118c`. It covers the GitHub snapshot, targeted source/configuration inspection, local regression, dependency audit and documentation. It is not a complete production certification or an audit of the owner's current Windows working tree.

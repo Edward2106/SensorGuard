@@ -1,0 +1,34 @@
+# Small, isolated three-member election/durability test. No application HA claim.
+name: sensorguard-mongo-ha-qa
+x-mongo: &mongo
+  image: mongo:7.0
+  command: [mongod, --replSet, sgQA, --bind_ip_all, --wiredTigerCacheSizeGB, '0.25']
+  networks: [private]
+  mem_limit: 512m
+  cpus: 0.5
+  restart: 'no'
+services:
+  rs1:
+    <<: *mongo
+    volumes: [rs1_data:/data/db]
+  rs2:
+    <<: *mongo
+    volumes: [rs2_data:/data/db]
+  rs3:
+    <<: *mongo
+    volumes: [rs3_data:/data/db]
+  verify:
+    image: sensorguard-apm-qa:local
+    command: [node, scripts/verify-mongo-ha-qa.js]
+    profiles: [test]
+    networks: [private]
+    mem_limit: 256m
+    volumes: ['../scripts:/app/scripts:ro']
+    environment:
+      DD_TRACE_ENABLED: 'false'
+networks:
+  private: {internal: true}
+volumes:
+  rs1_data: {}
+  rs2_data: {}
+  rs3_data: {}
