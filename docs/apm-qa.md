@@ -35,8 +35,9 @@ Only one worker owns global gauges. Logs use a QA-only shared volume, initialize
 for UID1000; the Agent mounts it read-only. The real Agent forwards APM, logs and
 metrics to an offline HTTP sink that discards bodies and counts requests/bytes.
 An HTTP200 from that sink proves neither Cloud schema acceptance nor indexing.
-Per-file rotation exists; total log retention across PID restarts is not time-bounded.
-Preserve this QA evidence volume and review its size before extended/repeated runs.
+Runtime logs now have cross-session age/size retention; see [v1 policy](hackathon-v1.md).
+Preserve historical QA evidence outside runtime cleanup directories. Release QA
+uses a new log volume so the previous Agent evidence volume remains untouched.
 
 ```powershell
 docker compose -f deploy/compose.apm-qa.yml -f deploy/compose.apm-agent-qa.yml exec -T agent agent status -j

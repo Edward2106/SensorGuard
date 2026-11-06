@@ -94,5 +94,7 @@ try {
 finally {
   for (const key of ['mongo','redis','worker','api']) { try { docker(['start', ids[key]]); } catch { report.restoreFailed = true; } }
   try { await ready(200); execute(`const{authStore}=await import('./src/security/store.js');for(const id of ${JSON.stringify(accounts.map(a => a.id))})await authStore.updateUser(id,{disabled:true})`); report.temporaryQAUsersDisabled = accounts.length; } catch { report.cleanupRequiresReview = true; }
-  writeFileSync(apmQA ? 'scratch/pr1-reliability.json' : 'scratch/hardening-reliability.json', JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
+  const reportFile=process.env.SENSORGUARD_QA_REPORT || (apmQA ? 'scratch/pr1-reliability.json' : 'scratch/hardening-reliability.json');
+  if(!/^scratch\/[a-z0-9-]+\.json$/.test(reportFile))throw Error('QA report must be an explicit scratch JSON file');
+  writeFileSync(reportFile, JSON.stringify(report, null, 2), {flag:'wx'}); console.log(JSON.stringify(report, null, 2));
 }

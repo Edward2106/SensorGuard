@@ -2,6 +2,8 @@
 
 SensorGuard thu thập telemetry IoT, xử lý qua hàng đợi và theo dõi sự cố trên dashboard web. Hệ thống hướng tới demo và vận hành nội bộ; triển khai Internet, High Availability và Datadog Cloud cần được kiểm chứng riêng theo môi trường.
 
+Phạm vi **v1.0 hackathon**: chạy cục bộ, telemetry/incident/analytics/recovery có kiểm chứng, backup/restore và log retention. Datadog Cloud và HA toàn ứng dụng nằm ngoài phạm vi. Xem [hướng dẫn và nghiệm thu v1.0](docs/hackathon-v1.md).
+
 ## Tính năng
 
 - Nhận telemetry đơn lẻ hoặc theo lô bằng credential dành riêng cho thiết bị.

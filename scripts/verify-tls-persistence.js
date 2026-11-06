@@ -45,5 +45,5 @@ for (const suffix of ['first', 'recreated']) {
   } finally { docker(['stop', name]); }
 }
 report.success = true;
-fs.writeFileSync('scratch/hardening-tls-qa.json', JSON.stringify(report, null, 2));
+fs.writeFileSync(process.argv[3] || 'scratch/hardening-tls-qa.json', JSON.stringify(report, null, 2), {flag:'wx'});
 console.log(JSON.stringify(report));

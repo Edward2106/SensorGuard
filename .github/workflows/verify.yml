@@ -47,6 +47,7 @@ jobs:
       - run: node scripts/prepare-staging.js
       - run: docker compose --env-file .env.staging.local -f deploy/compose.yml config --quiet
       - run: docker compose -f deploy/compose.apm-qa.yml -f deploy/compose.apm-agent-qa.yml config --quiet
+      - run: docker compose -f deploy/compose.apm-qa.yml -f deploy/compose.release-qa.yml config --quiet
       - run: docker compose -f deploy/compose.mongo-ha-qa.yml config --quiet
       - run: docker build -f deploy/Dockerfile -t sensorguard-ci:local .
       - name: Verify incident intelligence through real API, queues and workers

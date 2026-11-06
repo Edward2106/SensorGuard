@@ -1,5 +1,9 @@
 # Windows PR #1 acceptance — 06/11/2026
 
+> Historical acceptance scope. The later [hackathon v1 scope](hackathon-v1.md)
+> explicitly excludes Cloud and whole-application HA; those items no longer block
+> the hackathon release. Its release gates supersede the Draft/merge instruction below.
+
 Starting PR head: `4a7f369d39e45aca65062affb316f607689e15a2` on
 `fix/observability-release-audit`. Windows main was46680a2. The modified README and
 four untracked APM files were backed up intact in ignored
