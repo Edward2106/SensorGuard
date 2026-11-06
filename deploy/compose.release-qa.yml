@@ -1,0 +1,30 @@
+# No Agent/Cloud. Keep historical QA evidence volumes untouched.
+services:
+  api:
+    environment:
+      DD_TRACE_ENABLED: 'false'
+      DEVICE_API_KEY: offline-device-qa-only-distinct-key-0000
+      DEMO_API_ORIGIN: http://api:3000
+      SENSORGUARD_LOG_DIR: /runtime-logs
+    volumes: [release_logs:/runtime-logs]
+    depends_on:
+      log-init: {condition: service_completed_successfully}
+  worker:
+    environment:
+      DD_TRACE_ENABLED: 'false'
+      DEVICE_API_KEY: offline-device-qa-only-distinct-key-0000
+      DEMO_API_ORIGIN: http://api:3000
+      SENSORGUARD_LOG_DIR: /runtime-logs
+    volumes: [release_logs:/runtime-logs]
+    depends_on:
+      log-init: {condition: service_completed_successfully}
+  log-init:
+    image: sensorguard-apm-qa:local
+    user: '0:0'
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    volumes: [release_logs:/runtime-logs]
+    command: [node, -e, "require('fs').chownSync('/runtime-logs',1000,1000)"]
+volumes:
+  release_logs: {}

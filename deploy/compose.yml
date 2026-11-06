@@ -1,13 +1,14 @@
 name: sensorguard-phase8-staging
 x-app: &app
   image: sensorguard-phase8:local
-  build:
+  build: &app-build
     context: ..
     dockerfile: deploy/Dockerfile
   restart: unless-stopped
   init: true
   read_only: true
-  tmpfs: [/tmp, /app/logs]
+  tmpfs: [/tmp]
+  volumes: [app_logs:/app/logs]
   security_opt: [no-new-privileges:true]
   cap_drop: [ALL]
   mem_limit: 768m
@@ -33,9 +34,22 @@ x-app: &app
     DD_TRACE_ENABLED: 'false'
     SENSORGUARD_METRICS_ENABLED: 'false'
   depends_on:
+    log-init: {condition: service_completed_successfully}
     mongo: {condition: service_healthy}
     redis: {condition: service_healthy}
 services:
+  log-init:
+    image: sensorguard-phase8:local
+    build: *app-build
+    user: '0:0'
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    volumes: [app_logs:/app/logs]
+    command: [node, -e, "require('fs').chownSync('/app/logs',1000,1000)"]
   api:
     <<: *app
     healthcheck:
@@ -109,6 +123,7 @@ networks:
   edge: {}
   private: {internal: true}
 volumes:
+  app_logs: {}
   mongo_data: {}
   redis_data: {}
   caddy_data: {}

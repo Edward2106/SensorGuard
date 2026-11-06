@@ -3,25 +3,28 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
-const names = { api: 'sensorguard-hardening-api-qa', worker: 'sensorguard-hardening-worker-qa', redis: 'sensorguard-intelligence-redis-qa', mongo: 'sensorguard-phase9-mongo7-qa' };
+const apmQA = process.env.SENSORGUARD_APM_QA === 'true';
+const names = apmQA ? {api:'sensorguard-apm-qa-api-1',worker:'sensorguard-apm-qa-worker-1',redis:'sensorguard-apm-qa-redis-1',mongo:'sensorguard-apm-qa-mongo-1'} : { api: 'sensorguard-hardening-api-qa', worker: 'sensorguard-hardening-worker-qa', redis: 'sensorguard-intelligence-redis-qa', mongo: 'sensorguard-phase9-mongo7-qa' };
 const docker = args => execFileSync('docker', args, { encoding: 'utf8', timeout: 45000, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 const inspected = JSON.parse(docker(['inspect', ...Object.values(names)]));
 const ids = Object.fromEntries(Object.entries(names).map(([key, name]) => {
   const c = inspected.find(c => c.Name === '/' + name);
   if (!c || c.State.Status !== 'running') throw Error('Expected running QA container: ' + name);
-  if (['api', 'worker'].includes(key) && c.Config.Labels?.['com.docker.compose.project'] !== 'sensorguard-hardening-qa') throw Error('Wrong Compose project');
+  if ((apmQA || ['api', 'worker'].includes(key)) && c.Config.Labels?.['com.docker.compose.project'] !== (apmQA ? 'sensorguard-apm-qa' : 'sensorguard-hardening-qa')) throw Error('Wrong Compose project');
   return [key, c.Id];
 }));
 const execute = body => execFileSync('docker', ['exec', '-i', ids.api, 'node', '--input-type=module'], {
-  input: `import mongoose from'mongoose';if(!process.env.MONGODB_DB_NAME.startsWith('sg_intelligence_qa_')||new URL(process.env.MONGODB_URI).hostname!=='sensorguard-phase9-mongo7-qa'||process.env.REDIS_HOST!=='sensorguard-intelligence-redis-qa')throw Error('QA only');await mongoose.connect(process.env.MONGODB_URI,{dbName:process.env.MONGODB_DB_NAME,autoIndex:false});const qaOpts=await mongoose.connection.db.admin().command({getCmdLineOpts:1});if(qaOpts.parsed.net.port!==27029||!new RegExp('^/scratch/phase9-mongo-[0-9]+$').test(qaOpts.parsed.storage.dbPath))throw Error('Wrong QA Mongo topology');${body};await mongoose.disconnect();`,
+  input: `import mongoose from'mongoose';const apm=${apmQA};if(apm ? (process.env.MONGODB_DB_NAME!=='sg_apm_qa'||new URL(process.env.MONGODB_URI).hostname!=='mongo'||process.env.REDIS_HOST!=='redis'||process.env.DD_ENV!=='qa') : (!process.env.MONGODB_DB_NAME.startsWith('sg_intelligence_qa_')||new URL(process.env.MONGODB_URI).hostname!=='sensorguard-phase9-mongo7-qa'||process.env.REDIS_HOST!=='sensorguard-intelligence-redis-qa'))throw Error('QA only');await mongoose.connect(process.env.MONGODB_URI,{dbName:process.env.MONGODB_DB_NAME,autoIndex:false});const qaOpts=await mongoose.connection.db.admin().command({getCmdLineOpts:1});if(qaOpts.parsed.net.port!==27029||!new RegExp('^/scratch/phase9-mongo-[0-9]+$').test(qaOpts.parsed.storage.dbPath))throw Error('Wrong QA Mongo topology');${body};await mongoose.disconnect();`,
   encoding: 'utf8', timeout: 30000, stdio: ['pipe', 'pipe', 'pipe'],
 }).trim();
 const accounts = JSON.parse(execute(`const{authStore}=await import('./src/security/store.js');const{hashPassword}=await import('./src/security/password.js');const{randomBytes}=await import('node:crypto');const a=[];for(const role of ['ADMIN','OPERATOR']){const username='fault-'+Date.now().toString(36)+'-'+role.toLowerCase(),password=randomBytes(24).toString('base64url');const u=await authStore.createUser({username,passwordHash:await hashPassword(password),role});a.push({id:String(u._id),username,password,role});}console.log(JSON.stringify(a))`));
 const cookies = {}, report = { at: new Date(), scope: 'Dedicated hardening QA only; no reset/delete/flush', checks: [] };
 async function call(path, role = 'ADMIN', method = 'GET', body) {
-  const r = await fetch('http://127.0.0.1:3003' + path, { method,
+  const options = { method,
     headers: { Origin: 'http://127.0.0.1:5173', 'Content-Type': 'application/json', 'X-SensorGuard-UI': '1', ...(cookies[role] ? { Cookie: cookies[role] } : {}) },
-    body: method === 'GET' ? undefined : JSON.stringify(body || {}), signal: AbortSignal.timeout(10000) });
+    body: method === 'GET' ? undefined : JSON.stringify(body || {}) };
+  if(apmQA) return JSON.parse(docker(['exec',ids.api,'node','--input-type=module','-e',`const r=await fetch(${JSON.stringify('http://127.0.0.1:3000'+path)},{...${JSON.stringify(options)},signal:AbortSignal.timeout(10000)});console.log(JSON.stringify({status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]}))`]));
+  const r = await fetch('http://127.0.0.1:3003' + path, { ...options, signal: AbortSignal.timeout(10000) });
   return { status: r.status, data: await r.json(), cookie: r.headers.get('set-cookie')?.split(';')[0] };
 }
 async function wait(check, timeout = 60000) {
@@ -91,5 +94,7 @@ try {
 finally {
   for (const key of ['mongo','redis','worker','api']) { try { docker(['start', ids[key]]); } catch { report.restoreFailed = true; } }
   try { await ready(200); execute(`const{authStore}=await import('./src/security/store.js');for(const id of ${JSON.stringify(accounts.map(a => a.id))})await authStore.updateUser(id,{disabled:true})`); report.temporaryQAUsersDisabled = accounts.length; } catch { report.cleanupRequiresReview = true; }
-  writeFileSync('scratch/hardening-reliability.json', JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
+  const reportFile=process.env.SENSORGUARD_QA_REPORT || (apmQA ? 'scratch/pr1-reliability.json' : 'scratch/hardening-reliability.json');
+  if(!/^scratch\/[a-z0-9-]+\.json$/.test(reportFile))throw Error('QA report must be an explicit scratch JSON file');
+  writeFileSync(reportFile, JSON.stringify(report, null, 2), {flag:'wx'}); console.log(JSON.stringify(report, null, 2));
 }

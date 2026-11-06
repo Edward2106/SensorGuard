@@ -1,0 +1,11 @@
+logs:
+  - type: file
+    path: /qa-logs/sensorguard-api-*.log
+    service: sensorguard-api
+    source: nodejs
+    tags: ['env:qa']
+  - type: file
+    path: /qa-logs/sensorguard-worker-*.log
+    service: sensorguard-worker
+    source: nodejs
+    tags: ['env:qa']

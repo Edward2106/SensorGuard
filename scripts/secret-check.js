@@ -9,4 +9,4 @@ for(const file of files){
   let content;try{content=readFileSync(file,'utf8');}catch{continue;}
   if (/-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}|DD_API_KEY\s*=\s*[a-f0-9]{32}/.test(content)){console.error('Potential secret in:',file);failed=true;}
 }
-console.log('Scanned tracked files only; pattern scanning does not prove history is secret-free.');process.exitCode=failed?1:0;
+console.log(`Scanned ${files.length} tracked and non-ignored untracked files; pattern scanning does not prove history is secret-free.`);process.exitCode=failed?1:0;

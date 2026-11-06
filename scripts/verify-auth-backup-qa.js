@@ -1,0 +1,16 @@
+import {execFileSync} from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+const backup=JSON.parse(fs.readFileSync(process.argv[2]||'scratch/v1-backup-restore.json','utf8'));
+const folder=fs.realpathSync(backup.folder),root=fs.realpathSync('backups');assert.ok(folder.startsWith(root+path.sep));
+const docker=(args,opts={})=>execFileSync('docker',args,{stdio:['pipe','pipe','pipe'],timeout:60000,...opts});
+for(const name of ['sensorguard-apm-qa-api-1','sensorguard-apm-qa-mongo-1'])assert.equal(JSON.parse(docker(['inspect',name]))[0].Config.Labels['com.docker.compose.project'],'sensorguard-apm-qa');
+const stamp=String(Date.now()),args=['exec','-e','DD_TRACE_ENABLED=false','sensorguard-apm-qa-api-1','node','scripts/verify-auth-restore-qa.js'];
+const fixture=JSON.parse(docker([...args,'prepare',stamp]));
+const bytes=docker(['exec','sensorguard-apm-qa-mongo-1','mongodump','--port=27029','--db='+fixture.source,'--archive','--gzip','--quiet']);
+const archive=path.join(folder,'auth-fixture-'+stamp+'.archive.gz');fs.writeFileSync(archive,bytes,{flag:'wx',mode:0o600});
+docker(['exec','-i','sensorguard-apm-qa-mongo-1','mongorestore','--port=27029','--archive','--gzip','--nsFrom='+fixture.source+'.*','--nsTo='+fixture.target+'.*'],{input:bytes});
+const result={...JSON.parse(docker([...args,'verify',stamp])),archive,sha256:createHash('sha256').update(bytes).digest('hex')};
+fs.writeFileSync('scratch/v1-auth-restore-'+stamp+'.json',JSON.stringify(result,null,2),{flag:'wx'});console.log(JSON.stringify(result));

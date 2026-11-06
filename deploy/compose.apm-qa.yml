@@ -1,0 +1,119 @@
+# Standalone, offline QA. Never combine with the staging compose/env files.
+name: sensorguard-apm-qa
+x-app: &app
+  image: sensorguard-apm-qa:local
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  init: true
+  restart: 'no'
+  read_only: true
+  tmpfs: [/tmp, /app/logs]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 512m
+  networks: [private]
+  volumes: ['../scripts:/app/scripts:ro']
+  environment: &env
+    NODE_ENV: test
+    HOST: 0.0.0.0
+    MONGODB_URI: mongodb://mongo:27029/sg_apm_qa
+    MONGODB_DB_NAME: sg_apm_qa
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    LEGACY_API_KEY_ENABLED: 'true'
+    API_KEY: offline-qa-only-not-a-real-secret
+    DD_AGENT_HOST: receiver
+    DD_TRACE_AGENT_PORT: 8126
+    DD_ENV: qa
+    DD_TRACE_ENABLED: 'true'
+    DD_TRACE_SAMPLE_RATE: '1'
+    DD_TRACE_SPAN_ATTRIBUTE_SCHEMA: v1
+    DD_TRACE_STARTUP_LOGS: 'false'
+    DD_INSTRUMENTATION_TELEMETRY_ENABLED: 'false'
+    DD_REMOTE_CONFIG_ENABLED: 'false'
+    DD_TRACE_STATS_COMPUTATION_ENABLED: 'false'
+    DD_PROFILING_ENABLED: 'false'
+    DD_RUNTIME_METRICS_ENABLED: 'false'
+    DD_APPSEC_ENABLED: 'false'
+    DD_DATA_STREAMS_ENABLED: 'false'
+    SENSORGUARD_METRICS_ENABLED: 'false'
+    SENSORGUARD_RECOVERY_METRICS_ENABLED: 'false'
+    SENSORGUARD_WORKFLOW_METRICS_ENABLED: 'false'
+  depends_on:
+    mongo: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    receiver: {condition: service_healthy}
+services:
+  regression:
+    profiles: [test]
+    image: sensorguard-apm-qa:local
+    # Share ONLY the QA Mongo loopback: existing integration safety guards require
+    # 127.0.0.1:27029 and the dedicated /scratch/phase9-mongo-* dbPath.
+    network_mode: service:mongo
+    volumes: ['../tests:/app/tests:ro', '../scripts:/app/scripts:ro', '../frontend/server:/app/frontend/server:ro']
+    environment:
+      NODE_ENV: test
+      PHASE9_TEST_MONGO_URI: mongodb://127.0.0.1:27029
+      DD_TRACE_ENABLED: 'false'
+      SENSORGUARD_METRICS_ENABLED: 'false'
+    command: [npm, test]
+    depends_on:
+      mongo: {condition: service_healthy}
+  receiver:
+    <<: *app
+    command: [node, scripts/apm-qa-receiver.js]
+    depends_on: {}
+    environment: {DD_TRACE_ENABLED: 'false'}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8126/summary').then(r=>process.exit(r.ok?0:1))"]
+      interval: 3s
+      retries: 15
+  api:
+    <<: *app
+    command: [node, scripts/start-observed.js, api]
+    environment:
+      <<: *env
+      DD_SERVICE: sensorguard-api
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1))"]
+      interval: 5s
+      retries: 20
+  worker:
+    <<: *app
+    command: [node, scripts/start-observed.js, worker]
+    environment:
+      <<: *env
+      DD_SERVICE: sensorguard-worker
+    stop_grace_period: 70s
+    healthcheck:
+      test: [CMD, node, scripts/check-worker.js]
+      interval: 5s
+      retries: 20
+  mongo:
+    image: mongo:7.0
+    command: [mongod, --port, '27029', --dbpath, /scratch/phase9-mongo-9001, --bind_ip_all, --wiredTigerCacheSizeGB, '0.25']
+    entrypoint: [sh, -c, 'mkdir -p /scratch/phase9-mongo-9001 && chown mongodb:mongodb /scratch/phase9-mongo-9001 && exec docker-entrypoint.sh "$$@"', --]
+    volumes: [mongo_data:/scratch/phase9-mongo-9001]
+    networks: [private]
+    # No published ports: integration tests share this QA-only network namespace.
+    mem_limit: 768m
+    healthcheck:
+      test: [CMD, mongosh, --port, '27029', --quiet, --eval, 'quit(db.adminCommand({ping:1}).ok ? 0 : 1)']
+      interval: 3s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, 'yes', --maxmemory-policy, noeviction]
+    volumes: [redis_data:/data]
+    networks: [private]
+    mem_limit: 128m
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      retries: 20
+networks:
+  private: {internal: true}
+volumes:
+  mongo_data: {}
+  redis_data: {}
